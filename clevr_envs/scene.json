@@ -1,0 +1,611 @@
+{
+    "info": "scene consists of front/back objects",
+    "scenes": [
+        {
+            "image_index": 0,
+            "image_filename": "00000_image.png",
+            "objects": [
+                {
+                    "color": "gray",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        11.068442173319983,
+                        -1.7043509323996973,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "green",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        11.068442173319983,
+                        -1.7043509323996973,
+                        1.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "gray",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        10.782691840183054,
+                        -0.1266095281973379,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                },
+                {
+                    "color": "blue",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        10.782691840183054,
+                        -0.1266095281973379,
+                        3.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                }
+            ]
+        },
+        {
+            "image_index": 1,
+            "image_filename": "00001_image.png",
+            "objects": [
+                {
+                    "color": "gray",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        2.0290720015779535,
+                        -0.5951257888573797,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "blue",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        2.002876915858962,
+                        0.9636235848338063,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                },
+                {
+                    "color": "green",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        2.002876915858962,
+                        0.9636235848338063,
+                        3.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                }
+            ]
+        },
+        {
+            "image_index": 2,
+            "image_filename": "00002_image.png",
+            "objects": [
+                {
+                    "color": "red",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        9.707192240395807,
+                        -1.406635020206902,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "gray",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        9.707192240395807,
+                        -1.406635020206902,
+                        1.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "blue",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        9.820280099577348,
+                        0.1427341784501397,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                },
+                {
+                    "color": "red",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        9.820280099577348,
+                        0.1427341784501397,
+                        3.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                }
+            ]
+        },
+        {
+            "image_index": 3,
+            "image_filename": "00003_image.png",
+            "objects": [
+                {
+                    "color": "red",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        9.550642660634757,
+                        -0.09940091291721853,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "blue",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        1.0308284235975351,
+                        -1.2144991992481875,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "gray",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        9.286734795375319,
+                        1.4516956260616114,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                },
+                {
+                    "color": "green",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        1.327046248774388,
+                        0.32818274703265815,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                }
+            ]
+        },
+        {
+            "image_index": 4,
+            "image_filename": "00004_image.png",
+            "objects": [
+                {
+                    "color": "blue",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        3.857256653605255,
+                        -1.7401598853225624,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "green",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        3.5088801591594314,
+                        -0.18777499859091656,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                }
+            ]
+        },
+        {
+            "image_index": 5,
+            "image_filename": "00005_image.png",
+            "objects": [
+                {
+                    "color": "gray",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        11.62067683405009,
+                        -0.7848086891715492,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "green",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        2.1825123544025367,
+                        0.16820203460545366,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "blue",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        11.226421788716186,
+                        0.7490544726994234,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                },
+                {
+                    "color": "gray",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        1.9981361862386287,
+                        1.746749666818722,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                }
+            ]
+        },
+        {
+            "image_index": 6,
+            "image_filename": "00006_image.png",
+            "objects": [
+                {
+                    "color": "red",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        1.7870089859302984,
+                        -1.0919847129098583,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "green",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        11.581249046477943,
+                        0.21142145965200887,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "blue",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        1.5879586913635202,
+                        0.4409598899871253,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                },
+                {
+                    "color": "gray",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        11.400246450993864,
+                        1.7283083775520574,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                }
+            ]
+        },
+        {
+            "image_index": 7,
+            "image_filename": "00007_image.png",
+            "objects": [
+                {
+                    "color": "gray",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        0.43271107280486765,
+                        -2.0245718803365675,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "green",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        2.583784868056816,
+                        0.24478161062053885,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "gray",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        2.583784868056816,
+                        0.24478161062053885,
+                        1.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "red",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        0.6231020697619906,
+                        -0.4687022134504647,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                },
+                {
+                    "color": "gray",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        0.6231020697619906,
+                        -0.4687022134504647,
+                        3.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                },
+                {
+                    "color": "green",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        2.6354078156348755,
+                        1.7700989884681233,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                },
+                {
+                    "color": "red",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        2.6354078156348755,
+                        1.7700989884681233,
+                        3.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                }
+            ]
+        },
+        {
+            "image_index": 8,
+            "image_filename": "00008_image.png",
+            "objects": [
+                {
+                    "color": "green",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        4.096540722311531,
+                        -0.3843446711033179,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "red",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        2.1795164103321,
+                        -0.6136720955887908,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "gray",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        4.14124774066163,
+                        1.1552097832630057,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                },
+                {
+                    "color": "green",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        1.864251745720717,
+                        0.9467314478876591,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                }
+            ]
+        },
+        {
+            "image_index": 9,
+            "image_filename": "00009_image.png",
+            "objects": [
+                {
+                    "color": "green",
+                    "size": "small",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        9.507421449161972,
+                        -1.1974292784171248,
+                        0.5
+                    ],
+                    "material": "metal",
+                    "occlude": 0,
+                    "area": 100
+                },
+                {
+                    "color": "blue",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cube",
+                    "3d_coords": [
+                        9.861358807828763,
+                        0.3553526371837644,
+                        1.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                },
+                {
+                    "color": "red",
+                    "size": "large",
+                    "rotation": 0,
+                    "shape": "cylinder",
+                    "3d_coords": [
+                        9.861358807828763,
+                        0.3553526371837644,
+                        3.0
+                    ],
+                    "material": "metal",
+                    "occlude": 1,
+                    "area": 100
+                }
+            ]
+        }
+    ]
+}
