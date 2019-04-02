@@ -1,2 +1,4 @@
 img/*
+ckpt/*
 __pycache__/*
+clevr_envs/__pycache__/*

@@ -8,6 +8,9 @@ import xml
 import xml.etree.ElementTree as ET
 
 from gym import utils
+import sys
+sys.path.append("..")
+from config import *
 
 try:
     import mujoco_py
@@ -17,11 +20,11 @@ except ImportError as e:
         "and also perform the setup instructions here:" \
         "https://github.com/openai/mujoco-py/.)".format(e))
 
-XY_SCALE     = 1.1
-SCENE_ID     = 0
-SEGMENTATION = 0     # 0 default condition, 1 segmentation condition
-SCALE        = 1./30 # scaling factor of CLEVR coordinates (testing)
-TRANSPARENT  = False
+CAMERA_RADIUS = 9.5
+CAMERA_HEIGHT = 3
+SCENE_ID      = 0
+SEGMENTATION  = 0     # 0 default condition, 1 segmentation condition
+TRANSPARENT   = False
 
 BASE_XML_FILE   = os.path.abspath(
         os.path.join(os.path.dirname(__file__), 'base.xml'))
@@ -51,8 +54,8 @@ properties_data = {
     "metal" : "MyMetal"
   },
   "sizes": {
-    "large": 1.0,
-    "small": 0.5
+    "large": 0.25,
+    "small": 0.125
   }
 }
 
@@ -71,8 +74,6 @@ def colormap(n):
         cmap[i, :] = np.array([r, g, b])
 
     return cmap
-
-visual_size_shrink_ratio = 0.99
 
 def array_to_string(array):
     """
@@ -106,9 +107,9 @@ def joint(**kwargs):
     return element
 
 ################################################################################
-#                                                                              # 
-# Env for active perception                                                    # 
-#                                                                              # 
+#                                                                              #
+# Env for active perception                                                    #
+#                                                                              #
 ################################################################################
 class ActivePerceptionEnv(gym.Env, utils.EzPickle):
 
@@ -120,7 +121,7 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
         self.control_freq = control_freq
 
     def start(self, scene_id):
-        self.scene_data = self.scenes[scene_id] 
+        self.scene_data = self.scenes[scene_id]
 
         # load the mesh and add the objects
         self.tree = ET.parse(BASE_XML_FILE)
@@ -143,53 +144,40 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
         cmap = colormap(n_objects + 1)
 
         for obj_id, obj in enumerate(list_objects):
+            pos = np.array(obj['3d_coords'])
+            idx = obj['idx']
 
-            y, x, z = obj['position'] if 'position' in obj else obj['3d_coords']
-            pos = np.array([x, y, z]) * SCALE
-            offset = np.array([1.3, 0.75, 0.41])
-            pos += offset
-
-            obj_name = 'object:{}{}'.format(obj['shape'], obj_id)
-            obj['name'] = obj_name
-            angle = obj['rotation'] / 180. * np.pi
             body = ET.Element('body', attrib={
                 'pos': array_to_string(pos),
-                'name': obj_name
+                'name': str(idx)
             })
 
             # object size
-            dim = properties_data['sizes'][obj['size']] * SCALE
-            size = [dim] * 3
+            size = [sz2h[CLEVR_OBJECTS[idx][2]]] * 3
 
             # object color
-            if SEGMENTATION == 1:
-                color = cmap[obj_id + 1] / 255
-            else:
-                color = np.array(properties_data['colors'][obj['color']])/255.0
+            color = np.array(properties_data['colors'][CLEVR_OBJECTS[idx][0]])/255.0
 
-            alpha = 0.2 if TRANSPARENT and obj['size'] == 'large' else 1.0
+            alpha = 0.2 if TRANSPARENT else 1.0
             color = np.append(color, [alpha])
 
             geom = {
                 'pos': '0 0 0',
-                'type': clevr_to_mujoco_types[obj['shape']],
+                'type': clevr_to_mujoco_types[CLEVR_OBJECTS[idx][1]],
                 'rgba': array_to_string(color),
                 'size': array_to_string(size),
                 'condim': '4',
-                'name': obj_name,
+                'name': str(idx),
                 'solimp': '0.99 0.99 0.001',
                 'solref': '0.001 1',
                 'friction': '1.0 0.5 0.5',
                 'mass': '.1',
             }
 
-            if SEGMENTATION == 1:
-                geom['material'] = 'seg_mat'
-
             body.append(ET.Element('geom', attrib=geom))
 
             joint = {
-                'name': obj_name,
+                'name': str(idx),
                 'type': 'free',
                 'damping': '.01'
             }
@@ -200,7 +188,7 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
                 'size': '0.002 0.002 0.002',
                 'rgba': '1 0 0 1',
                 'type': 'sphere',
-                'name': obj_name,
+                'name': str(idx),
             }
             body.append(ET.Element('site', attrib=site))
 
@@ -237,7 +225,7 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
                                      height=64,
                                      depth=True)
         o = agent_obs[0].copy()
-        o = cv2.GaussianBlur(o, (3, 3), 3)
+        #o = cv2.GaussianBlur(o, (3, 3), 3)
         return {
             'camera': (camera_obs[0].copy(), camera_obs[1].copy()),
             'birdview' : (birdview_obs[0].copy(), birdview_obs[1].copy()),
@@ -246,9 +234,8 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
         }
 
     def reset(self):
-        SCENE_ID = np.random.randint(10)
         self.start(scene_id=np.random.randint(self.total_scenes))
-        return self.step(0)
+        return (copy.deepcopy(self.scene_data['objects']), self.step(0))
 
     def render(self, mode='human'):
         if mode == 'rgb_array':
@@ -268,8 +255,10 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
 
     def step(self, action):
         theta = action % (2*np.pi)
-        x, y, z = np.cos(theta)*XY_SCALE, np.sin(theta)*XY_SCALE, 0.75
-        self.sim.data.set_mocap_pos('camera_mover', np.array([1.3+x,0.75+y,z]))
+        x     = np.cos(theta)*CAMERA_RADIUS
+        y     = np.sin(theta)*CAMERA_RADIUS
+        z     = CAMERA_HEIGHT
+        self.sim.data.set_mocap_pos('camera_mover', np.array([x,y,z]))
 
         qx, qy, qz = 0, 0, 1
         alpha = theta

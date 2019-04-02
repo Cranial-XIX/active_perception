@@ -9,7 +9,8 @@ from PIL import Image
 
 def test():
     env = gym.make('ActivePerception-v0')
-    obs = env.reset()
+    state, obs = env.reset()
+    print(state)
     #camera = obs['camera'][0][::-1]
     #birdview = obs['birdview'][0][::-1]
     #Image.fromarray(camera).save("camera.png")
