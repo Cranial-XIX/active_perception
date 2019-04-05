@@ -8,6 +8,8 @@ import sys
 
 from config import *
 
+ALL_EXIST = True
+
 def gen_obj(idx, x, y, z):
     return {
         "idx"      : int(idx),
@@ -40,10 +42,11 @@ def sample_2d_coords(n):
     return xs, ys
 
 def gen_scene(idx):
-    xs, ys = sample_2d_coords(n_obj)
+    n = n_obj if ALL_EXIST else np.random.randint(n_obj)+1
+    xs, ys = sample_2d_coords(n)
     #print("[INFO] sampled coordinates %s" % str(xys))
     objects = []
-    indices = np.random.permutation(n_obj)
+    indices = np.random.permutation(n_obj)[:n]
     for i, x, y in zip(indices, xs, ys):
         obj = gen_obj(
                 i,

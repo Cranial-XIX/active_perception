@@ -15,6 +15,7 @@ from config import *
 from sac import SAC
 from utils import *
 from tqdm import tqdm
+from visualize import *
 
 device = "cuda:3"
 
@@ -24,16 +25,16 @@ class LossFn(nn.Module):
     
     def forward(self, y_hat, y):
         """
-        y_hat: [B, 64]
-        y    : [B, 64]
+        y_hat: [B, dim-state]
+        y    : [B, dim-state]
         """
         y_hat = y_hat.view(-1, n_obj, dim_obj) 
         y     = y.view(-1, n_obj, dim_obj)
         iy, iy_hat = y[:,:,0].unsqueeze(-1), y_hat[:,:,0].unsqueeze(-1)
-        jy         = y[:,:,1:]
+        jy, jy_hat = y[:,:,1:], y_hat[:,:,1:]
 
         exist_loss = F.smooth_l1_loss(iy_hat, iy)
-        l2_loss    = F.mse_loss(iy_hat*jy, iy*jy)
+        l2_loss    = F.mse_loss(iy*jy_hat, iy*jy)
 
         return exist_loss + l2_loss
 
@@ -117,100 +118,142 @@ class LSTMFilter(nn.Module):
         torch.save(self.state_dict(), path)
         return
 
+    def load_model(self, path):
+        self.load_state_dict(torch.load(path))
+
 if __name__ == "__main__":
     env = gym.make('ActivePerception-v0')
 
     sac  = SAC()
     lstm = LSTMFilter().to(device)
-    opt  = optim.Adam(lstm.parameters(), lr=1e-4)
-
-    # set up the experiment folder
-    experiment_id = "lstm_" + get_datetime()
-    save_path = CKPT+experiment_id
-    img_path = IMG+experiment_id
-    check_path(img_path)
-
-    max_frames  = 1000000
-    max_steps   = 5
-    frame_idx   = 0
-    rewards     = []
-    batch_size  = 64
-
-    episode   = 0
-    bptt_step = 10
-
-    # regression loss for filtering
-    criterion = LossFn() 
-
-    # Update, use HER to train for sparse reward
-    best_reward = -1
-    pbar = tqdm(total=frame_idx)
-    losses = []
-    best_loss = np.inf
-    while frame_idx < max_frames:
-        episode += 1
-        pbar.update(1)
+    if len(sys.argv) > 1:
+        if not os.path.exists(sys.argv[1]+"_model.pt"):
+            print("[ERROR] Unknown path to load model")
+            sys.exit(1)
+        else:
+            sac.load_model(sys.argv[1]+"_sac.pt")
+            lstm.load_model(sys.argv[1]+"_model.pt")
+        lstm.eval()
+        max_steps  = 5
 
         scene_data, obs = env.reset()
-        target = get_spherical_state(scene_data).to(device)
+        target = get_spherical_state(scene_data).reshape(-1).numpy()
+        print("[INFO] Target is ", target)
 
-        states, actions, rewards, dones = [], [], [], []
-        episode_loss = 0
-        h, c, a = None, None, None
+        predictions = []
+
         rgb = trans_rgb(obs['o']).to(device) # [1, 3, 64, 64]
         g, (h, c) = lstm(rgb)
-        #guess_state = g.detach().cpu().squeeze().numpy()
         B = h.shape[0]
         guess_state = torch.cat((h.view(B,-1), c.view(B,-1)), -1).detach().cpu()
-        states.append(guess_state)
-        loss = criterion(g, target)
-        opt.zero_grad(); loss.backward(retain_graph=True); opt.step()
-        episode_loss += loss.item()
+        predictions.append(g.detach().cpu().view(-1).numpy())
 
         for step in range(max_steps):
             # SAC planning
             a = sac.policy_net.get_action(guess_state.reshape(1,-1))
             obs = env.step(a.item())
 
-            if (step+1) % bptt_step == 0:
-                h, c = h.detach(), c.detach()
-
             rgb = trans_rgb(obs['o']).to(device) # [1, 3, 64, 64]
             g, (h, c) = lstm(
                     rgb,
                     torch.FloatTensor(a).view(1,1).to(device),
                     h, c)
+            predictions.append(g.detach().cpu().view(-1).numpy())
             #guess_state = g.detach().cpu().squeeze().numpy()
             B = h.shape[0]
             guess_state = torch.cat((h.view(B,-1), c.view(B,-1)), -1).detach().cpu()
+
+        visualize_b(target, predictions)
+    else:
+        opt  = optim.Adam(lstm.parameters(), lr=1e-4)
+
+        # set up the experiment folder
+        experiment_id = "lstm_" + get_datetime()
+        save_path = CKPT+experiment_id
+        img_path = IMG+experiment_id
+        check_path(img_path)
+
+        max_frames = 1000000
+        max_steps  = 5
+        frame_idx  = 0
+        rewards    = []
+        batch_size = 64
+
+        episode    = 0
+        bptt_step  = 10
+
+        # regression loss for filtering
+        criterion = LossFn() 
+
+        # Update, use HER to train for sparse reward
+        best_reward = -1
+        pbar = tqdm(total=frame_idx)
+        losses = []
+        best_loss = np.inf
+        while frame_idx < max_frames:
+            episode += 1
+            pbar.update(1)
+
+            scene_data, obs = env.reset()
+            target = get_spherical_state(scene_data).to(device)
+
+            states, actions, rewards, dones = [], [], [], []
+            episode_loss = 0
+            h, c, a = None, None, None
+            rgb = trans_rgb(obs['o']).to(device) # [1, 3, 64, 64]
+            g, (h, c) = lstm(rgb)
+            #guess_state = g.detach().cpu().squeeze().numpy()
+            B = h.shape[0]
+            guess_state = torch.cat((h.view(B,-1), c.view(B,-1)), -1).detach().cpu()
+            states.append(guess_state)
             loss = criterion(g, target)
             opt.zero_grad(); loss.backward(retain_graph=True); opt.step()
+            episode_loss += loss.item()
 
-            l = loss.item()
-            episode_loss += l
-            reward = np.exp(-l + 3)
-            done   = l < 5e-3
+            for step in range(max_steps):
+                # SAC planning
+                a = sac.policy_net.get_action(guess_state.reshape(1,-1))
+                obs = env.step(a.item())
 
-            states.append(guess_state)
-            actions.append(np.array([a.item()]))
-            rewards.append(np.array([reward]))
-            dones.append(done)
+                if (step+1) % bptt_step == 0:
+                    h, c = h.detach(), c.detach()
 
-            frame_idx += 1
-            if done:
-                tqdm.write("[INFO] solved in %d steps!" % (step+1))
-                break
+                rgb = trans_rgb(obs['o']).to(device) # [1, 3, 64, 64]
+                g, (h, c) = lstm(
+                        rgb,
+                        torch.FloatTensor(a).view(1,1).to(device),
+                        h, c)
+                #guess_state = g.detach().cpu().squeeze().numpy()
+                B = h.shape[0]
+                guess_state = torch.cat((h.view(B,-1), c.view(B,-1)), -1).detach().cpu()
+                loss = criterion(g, target)
+                opt.zero_grad(); loss.backward(retain_graph=True); opt.step()
 
-        # Replay buffer
-        states, nstates = states[:-1], states[1:]
-        for i, (s, a, r, n, d) in enumerate(zip(states, actions, rewards, nstates, dones)):
-            sac.replay_buffer.push(s, a, r, n, d)
+                l = loss.item()
+                episode_loss += l
+                reward = np.exp(-l + 3)
+                done   = l < 5e-3
 
-        if episode % 10 == 0:
-            tqdm.write("[INFO] episode %10d | loss %10.4f | best %10.4f" % (episode, episode_loss, best_loss))
-            if episode_loss < best_loss:
-                best_loss = episode_loss
-                sac.save_model(save_path+"_sac.pt")
-                lstm.save_model(save_path+"_model.pt")
+                states.append(guess_state)
+                actions.append(np.array([a.item()]))
+                rewards.append(np.array([reward]))
+                dones.append(done)
 
-    pbar.close()
+                frame_idx += 1
+                if done:
+                    tqdm.write("[INFO] solved in %d steps!" % (step+1))
+                    break
+
+            # Replay buffer
+            states, nstates = states[:-1], states[1:]
+            for i, (s, a, r, n, d) in enumerate(zip(states, actions, rewards, nstates, dones)):
+                sac.replay_buffer.push(s, a, r, n, d)
+
+            if episode % 10 == 0:
+                tqdm.write("[INFO] episode %10d | loss %10.4f | best %10.4f" % (episode, episode_loss, best_loss))
+                if episode_loss < best_loss:
+                    best_loss = episode_loss
+                    sac.save_model(save_path+"_sac.pt")
+                    lstm.save_model(save_path+"_model.pt")
+
+        pbar.close()

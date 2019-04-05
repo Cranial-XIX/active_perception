@@ -25,13 +25,15 @@ CAMERA_HEIGHT = 3
 SCENE_ID      = 0
 SEGMENTATION  = 0     # 0 default condition, 1 segmentation condition
 TRANSPARENT   = False
+TEST          = False
+test_suffix   = '_test' if TEST else ''
 
 BASE_XML_FILE   = os.path.abspath(
         os.path.join(os.path.dirname(__file__), 'base.xml'))
 SCENE_JSON_FILE = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), 'scene.json'))
+        os.path.join(os.path.dirname(__file__), 'scene'+test_suffix+'.json'))
 FINAL_XML_FILE  = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), 'final.xml'))
+        os.path.join(os.path.dirname(__file__), 'final'+test_suffix+'.xml'))
 
 properties_data = {
   "shapes": {
@@ -115,6 +117,7 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
 
     def __init__(self, control_freq=50):
         # load scene data
+
         clevr_data = json.load(open(SCENE_JSON_FILE, 'r'))
         self.scenes = clevr_data['scenes']
         self.total_scenes = len(self.scenes)
@@ -210,11 +213,6 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
         return False
 
     def _get_obs(self):
-        camera_obs = self.sim.render(camera_name="external_camera_0",
-                                     width=512,
-                                     height=512,
-                                     depth=True)
-
         birdview_obs = self.sim.render(camera_name="external_camera_1",
                                      width=512,
                                      height=512,
@@ -224,17 +222,23 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
                                      width=64,
                                      height=64,
                                      depth=True)
+
+        large_agent_obs = self.sim.render(camera_name="agent_camera",
+                                     width=512,
+                                     height=512,
+                                     depth=True)
         o = agent_obs[0].copy()
         #o = cv2.GaussianBlur(o, (3, 3), 3)
         return {
-            'camera': (camera_obs[0].copy(), camera_obs[1].copy()),
-            'birdview' : (birdview_obs[0].copy(), birdview_obs[1].copy()),
-            'agentview' : (agent_obs[0].copy(), agent_obs[1].copy()),
+            'b' : birdview_obs[0].copy(),
+            'a' : large_agent_obs[0].copy(),
             'o': o,
         }
 
-    def reset(self):
-        self.start(scene_id=np.random.randint(self.total_scenes))
+    def reset(self, scene_id=None):
+        if scene_id is None:
+            scene_id = np.random.randint(self.total_scenes)
+        self.start(scene_id=scene_id)
         return (copy.deepcopy(self.scene_data['objects']), self.step(0))
 
     def render(self, mode='human'):
