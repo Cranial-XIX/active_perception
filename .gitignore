@@ -2,5 +2,6 @@ img/*
 ckpt/*
 __pycache__/*
 clevr_envs/__pycache__/*
+clevr_envs/wrappers/__pycache__/*
 clevr_envs/scene*.json
 clevr_envs/final.xml

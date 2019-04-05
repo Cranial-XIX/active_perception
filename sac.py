@@ -10,8 +10,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-import deepmind_lab
-
 from tqdm import tqdm
 from torch.distributions import Normal
 
@@ -82,7 +80,7 @@ class PolicyNetwork(nn.Module):
 
         super(PolicyNetwork, self).__init__()
 
-        self.device = "cuda:0"
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu:0"
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
 
@@ -154,7 +152,7 @@ class SAC:
         dim_action = 1
         dim_state  = 200
         dim_hidden = 256
-        self.device = "cuda:0"
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu:0"
 
         self.value_net = ValueNetwork(dim_state, dim_hidden).to(self.device)
         self.target_value_net = ValueNetwork(dim_state, dim_hidden).to(self.device)

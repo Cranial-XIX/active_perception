@@ -15,7 +15,7 @@ def get_scene(data):
     data = data.astype('float')
     objects = []
     for idx in range(n_obj):
-        if data[4*idx] == 0:
+        if data[4*idx] < 0.5:
             continue
         else:
             i = 4*idx
@@ -26,9 +26,6 @@ def get_scene(data):
     }
 
 def visualize_b(target, estimates, test_name="tmp"):
-    print(target)
-    for e in estimates:
-        print(e-target)
     test_scenes = {}
     test_scenes['info'] = test_name 
     scenes = []

@@ -17,7 +17,7 @@ from utils import *
 from tqdm import tqdm
 from visualize import *
 
-device = "cuda:3"
+device = "cuda:3" if torch.cuda.is_available() else "cpu:0"
 
 class LossFn(nn.Module):
     def __init__(self):
@@ -36,7 +36,7 @@ class LossFn(nn.Module):
         exist_loss = F.smooth_l1_loss(iy_hat, iy)
         l2_loss    = F.mse_loss(iy*jy_hat, iy*jy)
 
-        return exist_loss + l2_loss
+        return exist_loss, l2_loss
 
 class LSTMFilter(nn.Module):
     def __init__(self):
@@ -95,7 +95,7 @@ class LSTMFilter(nn.Module):
         exist ~ [0, 1]
         r     ~ [0, \inf)
         phi   ~ (0, 2\pi)
-        theta ~ (0, \pi)
+        th    ~ (0, \pi)
         """
         e   = torch.sigmoid(s_t[:,0::4])
         r   = F.relu(s_t[:,1::4])
@@ -188,7 +188,6 @@ if __name__ == "__main__":
         # Update, use HER to train for sparse reward
         best_reward = -1
         pbar = tqdm(total=frame_idx)
-        losses = []
         best_loss = np.inf
         while frame_idx < max_frames:
             episode += 1
@@ -199,6 +198,7 @@ if __name__ == "__main__":
 
             states, actions, rewards, dones = [], [], [], []
             episode_loss = 0
+            episode_l2_loss = 0
             h, c, a = None, None, None
             rgb = trans_rgb(obs['o']).to(device) # [1, 3, 64, 64]
             g, (h, c) = lstm(rgb)
@@ -206,9 +206,11 @@ if __name__ == "__main__":
             B = h.shape[0]
             guess_state = torch.cat((h.view(B,-1), c.view(B,-1)), -1).detach().cpu()
             states.append(guess_state)
-            loss = criterion(g, target)
+            e_loss, l2_loss = criterion(g, target)
+            loss = e_loss + l2_loss
             opt.zero_grad(); loss.backward(retain_graph=True); opt.step()
             episode_loss += loss.item()
+            episode_l2_loss += l2_loss.item()
 
             for step in range(max_steps):
                 # SAC planning
@@ -226,11 +228,13 @@ if __name__ == "__main__":
                 #guess_state = g.detach().cpu().squeeze().numpy()
                 B = h.shape[0]
                 guess_state = torch.cat((h.view(B,-1), c.view(B,-1)), -1).detach().cpu()
-                loss = criterion(g, target)
+                e_loss, l2_loss = criterion(g, target)
+                loss = e_loss + l2_loss
                 opt.zero_grad(); loss.backward(retain_graph=True); opt.step()
 
                 l = loss.item()
                 episode_loss += l
+                episode_l2_loss += l2_loss.item()
                 reward = np.exp(-l + 3)
                 done   = l < 5e-3
 
@@ -250,7 +254,9 @@ if __name__ == "__main__":
                 sac.replay_buffer.push(s, a, r, n, d)
 
             if episode % 10 == 0:
-                tqdm.write("[INFO] episode %10d | loss %10.4f | best %10.4f" % (episode, episode_loss, best_loss))
+                tqdm.write("[INFO] episode %10d | loss %10.4f "\
+                        "| best %10.4f | l2_loss %10.4f" % (
+                            episode, episode_loss, best_loss, episode_l2_loss))
                 if episode_loss < best_loss:
                     best_loss = episode_loss
                     sac.save_model(save_path+"_sac.pt")
