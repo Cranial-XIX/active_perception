@@ -27,8 +27,8 @@ K         = 30 # num particles
 ## baseline ####################################################################
 
 b_num_layers = 1
-b_dim_input  = 100
-b_dim_hidden = 100
+dim_input    = 64 
+dim_hidden   = 64
 
 ## scene generation ############################################################
 
