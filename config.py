@@ -28,7 +28,8 @@ K         = 30 # num particles
 
 b_num_layers = 1
 dim_input    = 64 
-dim_hidden   = 64
+dim_hidden   = 128
+OE           = 10
 
 ## scene generation ############################################################
 

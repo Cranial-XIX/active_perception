@@ -163,7 +163,7 @@ if __name__ == "__main__":
         visualize_b(target, RNN_pred)
         visualize_b(target, O_pred, False)
     else:
-        opt  = optim.RMSprop(rnn.parameters(), lr=1e-4)
+        opt  = optim.Adam(rnn.parameters(), lr=1e-4)
 
         # set up the experiment folder
         experiment_id = "rnn_" + get_datetime()
@@ -206,7 +206,7 @@ if __name__ == "__main__":
             loss_obs_e  += loe
             loss_obs_l2 += lol
             opt.zero_grad()
-            (lre+lrl+loe+lol).backward(retain_graph=True)
+            ((loe+lol)).backward(retain_graph=True)
             opt.step()
 
             for step in range(max_steps):
@@ -232,7 +232,7 @@ if __name__ == "__main__":
                 loss_obs_e  += loe
                 loss_obs_l2 += lol
                 opt.zero_grad()
-                (lre+lrl+loe+lol).backward(retain_graph=True)
+                ((loe+lol)).backward(retain_graph=True)
                 opt.step()
 
                 '''
