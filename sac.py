@@ -150,7 +150,7 @@ class NormalizedActions(gym.ActionWrapper):
 class SAC:
     def __init__(self):
         dim_action = 1
-        dim_state  = 512
+        dim_state  = 256
         dim_hidden = 256
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu:0"
 

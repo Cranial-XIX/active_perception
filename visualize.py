@@ -25,7 +25,8 @@ def get_scene(data):
         "objects": objects
     }
 
-def visualize_b(target, estimates, test_name="tmp"):
+def visualize_b(target, estimates, test_name="tmp", is_rnn=True):
+    suffix = "rnn" if is_rnn else "obs"
     test_scenes = {}
     test_scenes['info'] = test_name 
     scenes = []
@@ -43,4 +44,4 @@ def visualize_b(target, estimates, test_name="tmp"):
     check_path("img/"+test_name)
     for _, name in zip(range(total), names):
         state, obs = env.reset(_)
-        Image.fromarray(obs['a'][::-1]).save("img/%s/%s.png" % (test_name, name))
+        Image.fromarray(obs['a'][::-1]).save("img/%s/%s-%s.png" % (test_name, suffix, name))
