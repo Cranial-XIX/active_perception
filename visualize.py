@@ -45,3 +45,14 @@ def visualize_b(target, estimates, test_name="tmp", is_rnn=True):
     for _, name in zip(range(total), names):
         state, obs = env.reset(_)
         Image.fromarray(obs['a'][::-1]).save("img/%s/%s-%s.png" % (test_name, suffix, name))
+
+def visualize_o(objects):
+    scenes = [{'objects': objects}]
+    test_scenes = {'scenes': scenes}
+    json.dump(test_scenes, open(os.path.join("clevr_envs", "scene_test.json"), 'w'), indent=4)
+    clevr_envs.clevr.TEST = True
+    clevr_envs.clevr.TRANSPARENT = True
+    env = gym.make('ActivePerception-v0')
+    check_path("img/obs")
+    _, obs = env.reset()
+    Image.fromarray(obs['a'][::-1]).save("img/obs/predicted.png")

@@ -9,6 +9,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from utils import *
+from visualize import *
 
 device = "cuda:3" if torch.cuda.is_available() else "cpu:0"
 
@@ -123,6 +124,28 @@ class Observation(nn.Module):
         L2 /= (length//batch_size)
         E /= (length//batch_size)
         tqdm.write("[INFO] l2 loss: %10.4f, e loss %10.4f" % (L2, E))
+
+    def visualize(self):
+        self.load("ckpt/obs.pt")
+        self.to(device)
+        self.eval()
+        objects = []
+        env = gym.make('ActivePerception-v0')
+        check_path("img/obs")
+        scene_data, obs = env.reset()
+        Image.fromarray(obs['a'][::-1]).save("img/obs/0.png")
+        s_ = self.forward(trans_rgb(obs['o']).to(device)).detach().cpu().numpy().reshape(-1)
+        objects.extend(get_scene(s_)['objects'])
+
+        for j in range(9):
+            th = np.random.rand()*2*np.pi
+            obs = env.step(th)
+            Image.fromarray(obs['a'][::-1]).save("img/obs/%f.png" % th)
+            s_ = self.forward(trans_rgb(obs['o']).to(device))
+            s_ = rotate_state(s_, th).detach().cpu().numpy().reshape(-1)
+            objects.extend(get_scene(s_)['objects'])
+        env.close()
+        visualize_o(objects)
 
 def generate_data(total=100):
     env = gym.make('ActivePerception-v0')
