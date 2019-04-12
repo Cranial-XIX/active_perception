@@ -18,27 +18,23 @@ class Observation(nn.Module):
 
         super(Observation, self).__init__()
         self.derenderer = nn.Sequential(
-            nn.Conv2d( 6, 8, 3, padding=1),
-            nn.BatchNorm2d(),
+            nn.Conv2d( 3, 4, 3, padding=1),
+            nn.BatchNorm2d(4),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Conv2d( 4, 8, 3, padding=1),
+            nn.BatchNorm2d(8),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.MaxPool2d(2),
-            nn.Conv2d( 8, 16, 3, padding=1),
-            nn.BatchNorm2d(),
+            nn.Conv2d(8, 16, 3, padding=1),
             nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.MaxPool2d(2),
             nn.Conv2d(16, 32, 3, padding=1),
-            nn.BatchNorm2d(),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, 3, padding=1),
             flatten(),
-            nn.Linear(64*64, dim_hidden),
+            nn.Linear(32*32*32, 64),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(dim_hidden, dim_obj)
+            nn.Linear(64, dim_obj)
         )
 
         self.masks = []
@@ -46,14 +42,13 @@ class Observation(nn.Module):
             self.masks.append(
                     torch.FloatTensor(_).view(1, -1, 1, 1).repeat(batch_size, 1, H, W).to(device)/255)
 
-        self.opt = torch.optim.Adam(self.parameters(), 3e-4, weight_decay=1e-2)
+        self.opt = torch.optim.Adam(self.parameters(), 3e-4, weight_decay=1e-3)
 
     def forward(self, x):
         derendered = []
         for m in self.masks:
             mask = ((x - m).abs().sum(1, keepdim=True) < 1e-1) # [batch_size, 1, H, W]
             seg  = x * mask.float()
-            seg  = torch.cat((x, seg), 1)
             dr   = self.derenderer(seg)
             derendered.append(dr)
         return torch.cat(derendered, -1)
@@ -66,9 +61,9 @@ class Observation(nn.Module):
         y_hat = y_hat.view(-1, n_obj, dim_obj) 
         y     = y.view(-1, n_obj, dim_obj)
         iy, iy_hat = y[:,:,0].unsqueeze(-1), y_hat[:,:,0].unsqueeze(-1)
-        jy, jy_hat = y[:,:,1:], y_hat[:,:,1:]
+        jy, jy_hat = y[:,:,1:]*10, y_hat[:,:,1:]*10
         exist_loss = F.smooth_l1_loss(iy_hat, iy)
-        l2_loss    = F.mse_loss(iy*jy_hat, iy*jy)
+        l2_loss    = F.smooth_l1_loss(iy*jy_hat, iy*jy)
         return exist_loss, l2_loss
 
     def save(self, path):
@@ -82,7 +77,7 @@ class Observation(nn.Module):
         train_data = torch.load("data/observation.train")
         length = len(train_data)
         best_loss = np.inf
-        for episode in tqdm(range(1, 3001)):
+        for episode in tqdm(range(1, 1001)):
             idx = np.random.choice(length, length, False)
             E = L2 = 0 
             for i in range(length//batch_size):
@@ -98,16 +93,19 @@ class Observation(nn.Module):
                 L2 += l2.item()
             L2 /= (length//batch_size)
             E /= (length//batch_size)
-            tqdm.write("[INFO] epi %05d | l2 loss: %10.4f, e loss %10.4f" % (episode, L2, E))
-            if (L2+E) < best_loss:
-                best_loss = L2+E
-                self.save("ckpt/obs.pt")
+            if (episode % 5 == 0):
+                tqdm.write("[INFO] epi %05d | l2 loss: %10.4f, e loss %10.4f" % (episode, L2, E))
+            if (episode % 20 == 0):
+                loss = self.test()
+                self.train()
+                if loss < best_loss:
+                   best_loss = loss
+                   self.save("ckpt/obs.pt")
 
     def test(self):
-        self.load("ckpt/obs.pt")
-        self.to(device)
         self.eval()
         test_data = torch.load("data/observation.val")
+        test_data = test_data[:128]
         length = len(test_data)
         best_loss = np.inf
 
@@ -123,7 +121,8 @@ class Observation(nn.Module):
             L2 += l2.item()
         L2 /= (length//batch_size)
         E /= (length//batch_size)
-        tqdm.write("[INFO] l2 loss: %10.4f, e loss %10.4f" % (L2, E))
+        tqdm.write("[INFO][TEST] l2 loss: %10.4f, e loss %10.4f" % (L2, E))
+        return L2 + E
 
     def visualize(self):
         self.load("ckpt/obs.pt")
@@ -142,9 +141,10 @@ class Observation(nn.Module):
             obs = env.step(th)
             Image.fromarray(obs['a'][::-1]).save("img/obs/%f.png" % th)
             s_ = self.forward(trans_rgb(obs['o']).to(device))
-            s_ = rotate_state(s_, th).detach().cpu().numpy().reshape(-1)
+            s_ = rotate_state(s_.detach().cpu(), th).numpy().reshape(-1)
             objects.extend(get_scene(s_)['objects'])
         env.close()
+        print(objects)
         visualize_o(objects)
 
 def generate_data(total=100):
@@ -185,7 +185,7 @@ def test_mask():
     plt.savefig("kk.png")
 
 if __name__ == "__main__":
-   generate_data(10000)
+   #generate_data(10000)
    obs = Observation() 
-   obs.pretrain()
-   obs.test()
+   #obs.pretrain()
+   obs.visualize()
