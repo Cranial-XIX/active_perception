@@ -14,6 +14,13 @@ CLEVR_OBJECTS = [
     ["green", "cylinder", "small"]
 ]
 
+MASK = [
+    [87, 87, 87],
+    [173, 35, 35],
+    [42, 75, 215],
+    [29, 105, 20],
+]
+
 sz2h   = {"large": 0.25, "small": 0.125}
 
 IMG  = "img/"
@@ -23,6 +30,8 @@ dim_obj   = 4
 n_obj     = 4
 dim_state = dim_obj * n_obj
 K         = 30 # num particles
+batch_size= 64
+H = W = 64
 
 ## baseline ####################################################################
 
