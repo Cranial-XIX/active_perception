@@ -53,7 +53,7 @@ def visualize_o(objects):
     clevr_envs.clevr.TEST = True
     clevr_envs.clevr.TRANSPARENT = True
     env = gym.make('ActivePerception-v0')
-    env.test = True
+    env.__init__()
     check_path("img/obs")
     _, obs = env.reset(0)
     Image.fromarray(obs['a'][::-1]).save("img/obs/predicted.png")
