@@ -25,15 +25,17 @@ CAMERA_HEIGHT = 3
 SCENE_ID      = 0
 SEGMENTATION  = 0     # 0 default condition, 1 segmentation condition
 TRANSPARENT   = False
-TEST          = False
-test_suffix   = '_test' if TEST else ''
 
 BASE_XML_FILE   = os.path.abspath(
         os.path.join(os.path.dirname(__file__), 'segmentation.xml'))
 SCENE_JSON_FILE = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), 'scene'+test_suffix+'.json'))
+        os.path.join(os.path.dirname(__file__), 'scene.json'))
+T_SCENE_JSON_FILE = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), 'scene_test.json'))
 FINAL_XML_FILE  = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), 'final'+test_suffix+'.xml'))
+        os.path.join(os.path.dirname(__file__), 'final.xml'))
+T_FINAL_XML_FILE  = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), 'final_test.xml'))
 
 properties_data = {
   "shapes": {
@@ -117,11 +119,15 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
 
     def __init__(self, control_freq=50):
         # load scene data
+        self.control_freq = control_freq
+        self.load_scene()
 
-        clevr_data = json.load(open(SCENE_JSON_FILE, 'r'))
+    def load_scene(self, test=False):
+        f = T_SCENE_JSON_FILE if test else SCENE_JSON_FILE
+        self.test = test
+        clevr_data = json.load(open(f, 'r'))
         self.scenes = clevr_data['scenes']
         self.total_scenes = len(self.scenes)
-        self.control_freq = control_freq
 
     def start(self, scene_id):
         self.scene_data = self.scenes[scene_id]
@@ -197,7 +203,8 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
 
             self.worldbody.append(body)
 
-        with open(FINAL_XML_FILE, 'w') as f:
+        fi = T_FINAL_XML_FILE if self.test else FINAL_XML_FILE
+        with open(fi, 'w') as f:
             xml_str = ET.tostring(self.root, encoding='unicode')
             parsed_xml = xml.dom.minidom.parseString(xml_str)
             xml_str = parsed_xml.toprettyxml(newl='')
