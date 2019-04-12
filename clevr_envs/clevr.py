@@ -29,7 +29,7 @@ TEST          = False
 test_suffix   = '_test' if TEST else ''
 
 BASE_XML_FILE   = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), 'base.xml'))
+        os.path.join(os.path.dirname(__file__), 'segmentation.xml'))
 SCENE_JSON_FILE = os.path.abspath(
         os.path.join(os.path.dirname(__file__), 'scene'+test_suffix+'.json'))
 FINAL_XML_FILE  = os.path.abspath(

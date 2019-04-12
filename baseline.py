@@ -62,6 +62,7 @@ class RNNFilter(nn.Module):
             nn.ReLU(),
             nn.Linear(dim_hidden, dim_state)
         )
+
         self.decoder = nn.Sequential(
             nn.Linear(dim_hidden, dim_hidden),
             nn.ReLU(),

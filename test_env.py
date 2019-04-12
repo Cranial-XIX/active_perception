@@ -20,7 +20,7 @@ def test():
     for i in range(n):
         theta = 2*np.pi / 8 * i
         obs = env.step(theta)
-        Image.fromarray(obs['o'][::-1]).save("img/view"+str(i)+"pi_over_4.png")
+        Image.fromarray(obs['a'][::-1]).save("img/view"+str(i)+"pi_over_4.png")
 
     '''
     while True:
