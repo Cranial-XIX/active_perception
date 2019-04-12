@@ -32,6 +32,7 @@ dim_state = dim_obj * n_obj
 K         = 30 # num particles
 batch_size= 64
 H = W = 64
+dropout   = 0.3
 
 ## baseline ####################################################################
 

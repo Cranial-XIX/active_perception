@@ -10,46 +10,57 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from utils import *
 
+device = "cuda:3" if torch.cuda.is_available() else "cpu:0"
+
 class Observation(nn.Module):
     def __init__(self):
 
         super(Observation, self).__init__()
         self.derenderer = nn.Sequential(
             nn.Conv2d( 6, 8, 3, padding=1),
+            nn.BatchNorm2d(),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.MaxPool2d(2),
             nn.Conv2d( 8, 16, 3, padding=1),
+            nn.BatchNorm2d(),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.MaxPool2d(2),
             nn.Conv2d(16, 32, 3, padding=1),
+            nn.BatchNorm2d(),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.MaxPool2d(2),
             nn.Conv2d(32, 64, 3, padding=1),
             flatten(),
             nn.Linear(64*64, dim_hidden),
             nn.ReLU(),
-            nn.Linear(dim_hidden, dim_obs)
+            nn.Dropout(dropout),
+            nn.Linear(dim_hidden, dim_obj)
         )
 
         self.masks = []
         for _ in MASK:
             self.masks.append(
-                    torch.FloatTensor(_).view(1, -1, 1, 1).repeat(B, 1, H, W)/255)
+                    torch.FloatTensor(_).view(1, -1, 1, 1).repeat(batch_size, 1, H, W).to(device)/255)
 
-        self.opt = torch.optim.Adam(self.parameters(), 3e-4)
+        self.opt = torch.optim.Adam(self.parameters(), 3e-4, weight_decay=1e-2)
 
     def forward(self, x):
         derendered = []
         for m in self.masks:
-            mask = ((x - m).abs().sum(1, keepdim=True).squeeze(1) < 1e-1) # [B, 1, H, W]
-            seg  = x * mask
-            derendered.append(torch.cat((x, seg), 1)) # [B, 6, H, W]
+            mask = ((x - m).abs().sum(1, keepdim=True) < 1e-1) # [batch_size, 1, H, W]
+            seg  = x * mask.float()
+            seg  = torch.cat((x, seg), 1)
+            dr   = self.derenderer(seg)
+            derendered.append(dr)
         return torch.cat(derendered, -1)
 
     def loss(self, y_hat, y):
         """
-        y_hat: [B, dim_state]
-        y    : [B, dim_state]
+        y_hat: [batch_size, dim_state]
+        y    : [batch_size, dim_state]
         """
         y_hat = y_hat.view(-1, n_obj, dim_obj) 
         y     = y.view(-1, n_obj, dim_obj)
@@ -59,24 +70,59 @@ class Observation(nn.Module):
         l2_loss    = F.mse_loss(iy*jy_hat, iy*jy)
         return exist_loss, l2_loss
 
-    def train(self):
+    def save(self, path):
+        torch.save(self.state_dict(), path)
+
+    def load(self, path):
+        self.load_state_dict(torch.load(path))
+
+    def pretrain(self):
+        self.to(device)
         train_data = torch.load("data/observation.train")
         length = len(train_data)
-        for episode in tqdm(range(1, 1001)):
+        best_loss = np.inf
+        for episode in tqdm(range(1, 3001)):
             idx = np.random.choice(length, length, False)
-            L = 0 
-            for i in range(length//B):
-                o, s = map(torch.cat, zip(*train_data[i*B:(i+1)*B]))
-                o = o.to(device) # [B, C, H, W]
-                s = s.to(device) # [B, dim_state]
+            E = L2 = 0 
+            for i in range(length//batch_size):
+                o, s = map(torch.cat, zip(*train_data[i*batch_size:(i+1)*batch_size]))
+                o = o.to(device) # [batch_size, C, H, W]
+                s = s.to(device) # [batch_size, dim_state]
                 s_ = self.forward(o)
                 self.opt.zero_grad()
-                loss = self.loss(s_, s)
-                loss.backward()
+                e, l2 = self.loss(s_, s)
+                (e+l2).backward()
                 self.opt.step()
-                L += loss.item()
-            L /= (length//B)
-            tqdm.write("[INFO] epi %05d | loss %10.4f" % (episode, L))
+                E += e.item()
+                L2 += l2.item()
+            L2 /= (length//batch_size)
+            E /= (length//batch_size)
+            tqdm.write("[INFO] epi %05d | l2 loss: %10.4f, e loss %10.4f" % (episode, L2, E))
+            if (L2+E) < best_loss:
+                best_loss = L2+E
+                self.save("ckpt/obs.pt")
+
+    def test(self):
+        self.load("ckpt/obs.pt")
+        self.to(device)
+        self.eval()
+        test_data = torch.load("data/observation.val")
+        length = len(test_data)
+        best_loss = np.inf
+
+        idx = np.random.choice(length, length, False)
+        E = L2 = 0 
+        for i in range(length//batch_size):
+            o, s = map(torch.cat, zip(*test_data[i*batch_size:(i+1)*batch_size]))
+            o = o.to(device) # [batch_size, C, H, W]
+            s = s.to(device) # [batch_size, dim_state]
+            s_ = self.forward(o)
+            e, l2 = self.loss(s_, s)
+            E += e.item()
+            L2 += l2.item()
+        L2 /= (length//batch_size)
+        E /= (length//batch_size)
+        tqdm.write("[INFO] l2 loss: %10.4f, e loss %10.4f" % (L2, E))
 
 def generate_data(total=100):
     env = gym.make('ActivePerception-v0')
@@ -106,13 +152,17 @@ def test_mask():
     tmp = obs['o']
     obs = trans_rgb(obs['o']) # [1, 3, H, W]
 
-    B, _, H, W = obs.shape
+    batch_size, _, H, W = obs.shape
 
-    m = torch.FloatTensor(MASK[0]).view(1, -1, 1, 1).repeat(B, 1, H, W)/255
-    seg = (obs - m).abs().sum(1).squeeze() # [B, H, W]
+    m = torch.FloatTensor(MASK[0]).view(1, -1, 1, 1).repeat(batch_size, 1, H, W)/255
+    seg = (obs - m).abs().sum(1).squeeze() # [batch_size, H, W]
     seg = (seg < 1e-1) 
     Image.fromarray(tmp).save("original.png")
     plt.imshow(seg, cmap='gray')
     plt.savefig("kk.png")
 
 if __name__ == "__main__":
+   generate_data(10000)
+   obs = Observation() 
+   obs.pretrain()
+   obs.test()

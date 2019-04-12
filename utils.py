@@ -64,7 +64,7 @@ def rotate_state(state, theta, device="cpu"):
         [np.cos(theta), np.sin(theta)],
         [-np.sin(theta), np.cos(theta)]]).to(device)
     xy = xy.view(-1, 2).mm(R).view(-1, n_obj, 2)
-    s  = torch.cat((v, xy, z), -1)
+    s  = torch.cat((v, xy, z), -1).view(-1, dim_state)
     return s
 
 def trans_rgb(rgb):
