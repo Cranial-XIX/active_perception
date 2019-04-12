@@ -144,8 +144,6 @@ class Observation(nn.Module):
             s_ = rotate_state(s_.detach().cpu(), th).numpy().reshape(-1)
             objects.extend(get_scene(s_)['objects'])
         env.close()
-        print(objects)
-        visualize_o(objects)
 
 def generate_data(total=100):
     env = gym.make('ActivePerception-v0')
@@ -189,3 +187,4 @@ if __name__ == "__main__":
    obs = Observation() 
    #obs.pretrain()
    obs.visualize()
+   visualize_o()
