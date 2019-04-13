@@ -155,10 +155,11 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
         for obj_id, obj in enumerate(list_objects):
             pos = np.array(obj['3d_coords'])
             idx = obj['idx']
+            name = str(obj_id)
 
             body = ET.Element('body', attrib={
                 'pos': array_to_string(pos),
-                'name': str(idx)
+                'name': name 
             })
 
             # object size
@@ -167,7 +168,7 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
             # object color
             color = np.array(properties_data['colors'][CLEVR_OBJECTS[idx][0]])/255.0
 
-            alpha = 0.2 if TRANSPARENT else 1.0
+            alpha = 0.2 if self.test else 1.0
             color = np.append(color, [alpha])
 
             geom = {
@@ -176,7 +177,7 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
                 'rgba': array_to_string(color),
                 'size': array_to_string(size),
                 'condim': '4',
-                'name': str(idx),
+                'name': name,
                 'solimp': '0.99 0.99 0.001',
                 'solref': '0.001 1',
                 'friction': '1.0 0.5 0.5',
@@ -186,7 +187,7 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
             body.append(ET.Element('geom', attrib=geom))
 
             joint = {
-                'name': str(idx),
+                'name': name,
                 'type': 'free',
                 'damping': '.01'
             }
@@ -197,7 +198,7 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
                 'size': '0.002 0.002 0.002',
                 'rgba': '1 0 0 1',
                 'type': 'sphere',
-                'name': str(idx),
+                'name': name,
             }
             body.append(ET.Element('site', attrib=site))
 
@@ -212,7 +213,7 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
 
         # set n_substeps automatically depending on control frequency
         n_substeps = int(1.0 / (self.control_freq * self.mj_timestep))
-        model = mujoco_py.load_model_from_path(FINAL_XML_FILE)
+        model = mujoco_py.load_model_from_path(fi)
         self.sim = mujoco_py.MjSim(model, nsubsteps=n_substeps)
         self.viewer = None
 
