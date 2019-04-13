@@ -50,10 +50,9 @@ def visualize_o(objects):
     scenes = [{'objects': objects}]
     test_scenes = {'scenes': scenes}
     json.dump(test_scenes, open(os.path.join("clevr_envs", "scene_test.json"), 'w'), indent=4)
-    clevr_envs.clevr.TEST = True
     clevr_envs.clevr.TRANSPARENT = True
     env = gym.make('ActivePerception-v0')
-    env.__init__()
+    env.load_scene(True)
     check_path("img/obs")
     _, obs = env.reset(0)
     Image.fromarray(obs['a'][::-1]).save("img/obs/predicted.png")

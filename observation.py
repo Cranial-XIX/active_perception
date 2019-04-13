@@ -136,7 +136,7 @@ class Observation(nn.Module):
         s_ = self.forward(trans_rgb(obs['o']).to(device)).detach().cpu().numpy().reshape(-1)
         objects.extend(get_scene(s_)['objects'])
 
-        for j in range(9):
+        for j in range(2):
             th = np.random.rand()*2*np.pi
             obs = env.step(th)
             Image.fromarray(obs['a'][::-1]).save("img/obs/%f.png" % th)
