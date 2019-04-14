@@ -26,7 +26,7 @@ sz2h   = {"large": 0.25, "small": 0.125}
 IMG  = "img/"
 CKPT = "ckpt/"
 
-dim_obj   = 4
+dim_obj   = 3
 n_obj     = 4
 dim_state = dim_obj * n_obj
 K         = 30 # num particles

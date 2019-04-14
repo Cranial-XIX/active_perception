@@ -33,12 +33,11 @@ class flatten(nn.Module):
 ## environment related ########################################################
 
 def get_state(scene_data):
-    state = np.zeros(dim_state)
+    state = np.zeros((n_obj, dim_obj))
     for obj in scene_data:
         idx, xyz = itemgetter('idx', '3d_coords')(obj)
-        x, y, z  = xyz
-        state[idx*dim_obj:(idx+1)*dim_obj] = [1,x,y,z]
-    return torch.FloatTensor(state).unsqueeze(0)
+        state[idx] = xyz
+    return torch.FloatTensor(state).unsqueeze(0) # [1, n_obj, dim_obj]
 
 def get_spherical_state(scene_data):
     state = np.zeros(dim_state)
@@ -56,19 +55,18 @@ def rotate_state(state, theta, device="cpu"):
     rotate the cartesian coordinates counter-clockwise by theta (only x,y)
     state: [B, n_obj*dim_obj]
     """
-    s  = state.clone().view(-1, n_obj, dim_obj)
-    v  = s[:,:,0].unsqueeze(-1)
-    xy = s[:,:,1:3]
-    z  = s[:,:,3].unsqueeze(-1)
+    s  = state.clone()
+    xy = s[:,:,:2]
+    z  = s[:,:,2].unsqueeze(-1)
     R  = torch.FloatTensor([
         [np.cos(theta), np.sin(theta)],
         [-np.sin(theta), np.cos(theta)]]).to(device)
     xy = xy.view(-1, 2).mm(R).view(-1, n_obj, 2)
-    s  = torch.cat((v, xy, z), -1).view(-1, dim_state)
+    s  = torch.cat((xy, z), -1)
     return s
 
 def trans_rgb(rgb):
-    rgb = torch.FloatTensor(rgb.transpose(2,0,1)/255).unsqueeze(0)
+    rgb = torch.FloatTensor(rgb.transpose(2,0,1)/255-0.5).unsqueeze(0)
     return rgb
 
 def get_estimated_state(p, w):
