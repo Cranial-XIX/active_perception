@@ -1,12 +1,13 @@
 import clevr_envs
 import cv2
 import gym
+import matplotlib.pyplot as plt
 import torch
 import torch.nn
 import torch.nn.functional as F
 
 from PIL import Image
-import matplotlib.pyplot as plt
+from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from utils import *
 from visualize import *
@@ -46,21 +47,20 @@ class Derenderer(nn.Module):
             nn.Linear(64, dim_obj)
         )'''
         self.derenderer = nn.Sequential(
-                nn.Conv2d(3,1,5,2,2),
+                nn.Conv2d(7,8,5,2,2),
+                nn.Dropout(dropout),
                 nn.ReLU(),
                 nn.MaxPool2d(3,2,1),
-                nn.Conv2d(1,4,3,padding=1),
+                nn.Conv2d(8,8,3,padding=1),
+                nn.Dropout(dropout),
                 nn.ReLU(),
                 nn.MaxPool2d(3,2,1),
                 flatten(),
-                nn.Linear(256, 16),
+                nn.Linear(512, 64),
                 nn.Dropout(dropout),
                 nn.ReLU(),
-                nn.Linear(16, dim_obj),
-                nn.Tanh(),
+                nn.Linear(64, dim_obj)
         )
-        '''
-        '''
 
         self.masks = []
         for _ in MASK:
@@ -68,15 +68,15 @@ class Derenderer(nn.Module):
             mask = mask.repeat(batch_size,1,H,W).to(device)/255-0.5
             self.masks.append(mask)
 
-        self.opt = torch.optim.Adam(self.parameters(), 1e-3, weight_decay=1e-3)
+        self.opt = torch.optim.Adam(self.parameters(), 2e-4, weight_decay=1e-3)
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.opt, 'min')
 
     def forward(self, o, d):
         derendered = []
         exists = []
         for m in self.masks:
             mask  = ((o - m).abs().sum(1, keepdim=True) < 1e-1).float() # [:, 1, H, W]
-            #x     = torch.cat((mask*o,mask*d), 1)
-            x     = mask*o
+            x     = torch.cat((o, mask*o,mask*d), 1)
             dr    = self.derenderer(x).unsqueeze(1)*2                   # [:, 4, dim_obj]
             exist = (mask.view(batch_size, -1).sum(1, keepdim=True) > 0).float()
             derendered.append(dr)
@@ -90,8 +90,7 @@ class Derenderer(nn.Module):
         exist: [:, n_obj]
         """
         exist = exist
-        #loss  = [F.mse_loss(exist*s_[:,:,_], exist*s[:,:,_]) for _ in range(3)]
-        loss  = [(exist*s_[:,:,_]-exist*s[:,:,_]).pow(2).view(s_.shape[0],-1).sum(1).mean() for _ in range(3)]
+        loss  = [F.mse_loss(exist*s_[:,:,_], exist*s[:,:,_]) for _ in range(3)]
         return loss
 
     def save(self, path):
@@ -102,6 +101,7 @@ class Derenderer(nn.Module):
 
     def pretrain(self):
         self.to(device)
+        writer = SummaryWriter()
         train_data = torch.load("data/observation.train")
         test_data  = torch.load("data/observation.val")
         o_te, d_te, s_te = map(torch.cat, zip(*test_data))
@@ -121,14 +121,28 @@ class Derenderer(nn.Module):
                 s_, e = self.forward(o, d)
 
                 self.opt.zero_grad()
-                loss  = self.loss(s_, s, e)
-                (loss[0]+loss[1]+loss[2]).backward()
+                lx, ly, lz = self.loss(s_, s, e)
+                (lx+ly+lz).backward()
                 self.opt.step()
-                Lx   += loss[0].item()
-                Ly   += loss[1].item()
-                Lz   += loss[2].item()
+                Lx   += lx.item()
+                Ly   += ly.item()
+                Lz   += lz.item()
             divide = length // batch_size
             Lx /= divide; Ly /= divide; Lz /= divide
+            writer.add_scalar('tr_x', Lx, episode)
+            writer.add_scalar('tr_y', Ly, episode)
+            writer.add_scalar('tr_z', Lz, episode)
+
+            xx, yy, zz = self.test(o_te, d_te, s_te)
+            self.scheduler.step(xx+yy+zz)
+            writer.add_scalar('te_x', xx, episode)
+            writer.add_scalar('te_y', yy, episode)
+            writer.add_scalar('te_z', zz, episode)
+            if (xx+yy+zz) < best_loss:
+                best_loss = xx+yy+zz 
+                self.save("ckpt/obs1.pt")
+
+            '''
             if (episode % 5 == 0):
                 tqdm.write("[INFO] epi %05d | loss: %10.4f, %10.4f, %10.4f |" % (episode, Lx, Ly, Lz))
             if (episode % 20 == 0):
@@ -137,9 +151,10 @@ class Derenderer(nn.Module):
                 if (xx+yy+zz) < best_loss:
                     best_loss = xx+yy+zz 
                     self.save("ckpt/obs.pt")
+            '''
+        writer.close()
 
     def test(self, o_te, d_te, s_te):
-        self.eval()
         length = o_te.shape[0] 
         Lx = Ly = Lz = 0
         for _ in range(0, length-batch_size, batch_size):
@@ -151,7 +166,6 @@ class Derenderer(nn.Module):
             Lx += loss[0].item(); Ly += loss[1].item(); Lz += loss[2].item()
         d = (length//batch_size)
         Lx /= d; Ly /= d; Lz /= d
-        self.train()
         return Lx, Ly, Lz
 
     def visualize(self):
@@ -184,10 +198,10 @@ def generate_data(total=10000):
         state = get_state(scene_data)
         data.append((trans_rgb(obs['o']), trans_d(obs['d']), state))
         for j in range(1, 8):
-            th = np.pi/4*j 
+            th  = np.pi/4*j 
             obs = env.step(th)
-            state = rotate_state(state, -th)
-            data.append((trans_rgb(obs['o']), trans_d(obs['d']), state))
+            s   = rotate_state(state, -th)
+            data.append((trans_rgb(obs['o']), trans_d(obs['d']), s))
     threshold = int(total * 0.99)
     train = data[:threshold]
     val   = data[threshold:]
