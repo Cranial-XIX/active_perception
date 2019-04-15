@@ -192,7 +192,7 @@ def test_mask():
 if __name__ == "__main__":
     #test_mask()
     #test_rotation()
-    #generate_data(10000)
+    generate_data(10000)
     dr = Derenderer() 
     dr.pretrain()
     #dr.visualize()
