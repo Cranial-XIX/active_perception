@@ -7,7 +7,6 @@ import torch.nn
 import torch.nn.functional as F
 
 from PIL import Image
-from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from utils import *
 from visualize import *
@@ -18,34 +17,6 @@ class Derenderer(nn.Module):
     def __init__(self):
         super(Derenderer, self).__init__()
 
-        '''
-        self.derenderer = nn.Sequential(
-            nn.Conv2d( 3, 4, 3, padding=1),
-            nn.BatchNorm2d(4),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Dropout(dropout),
-            nn.Conv2d( 4, 8, 3, padding=1),
-            nn.BatchNorm2d(8),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Dropout(dropout),
-            nn.Conv2d( 8, 16, 3, padding=1),
-            nn.BatchNorm2d(16),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Dropout(dropout),
-            nn.Conv2d( 16, 32, 3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Dropout(dropout),
-            flatten(),
-            nn.Linear(16*32, 64),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(64, dim_obj)
-        )'''
         self.derenderer = nn.Sequential(
                 nn.Conv2d(7,8,5,2,2),
                 nn.Dropout(dropout),
@@ -101,7 +72,6 @@ class Derenderer(nn.Module):
 
     def pretrain(self):
         self.to(device)
-        writer = SummaryWriter()
         train_data = torch.load("data/observation.train")
         test_data  = torch.load("data/observation.val")
         o_te, d_te, s_te = map(torch.cat, zip(*test_data))
@@ -110,6 +80,17 @@ class Derenderer(nn.Module):
         del train_data; del test_data
 
         best_loss = np.inf
+        summary = {
+                'tr_x': [],
+                'tr_y': [],
+                'tr_z': [],
+                'tr_i': [],
+                'te_x': [],
+                'te_y': [],
+                'te_z': [],
+                'te_i': [],
+                'save_path': 'ckpt/derenderer_train_curve.png',
+        }
         for episode in tqdm(range(1, 1001)):
             Lx = Ly = Lz = 0
             idx = np.random.choice(length, length, False)
@@ -129,30 +110,27 @@ class Derenderer(nn.Module):
                 Lz   += lz.item()
             divide = length // batch_size
             Lx /= divide; Ly /= divide; Lz /= divide
-            writer.add_scalar('tr_x', Lx, episode)
-            writer.add_scalar('tr_y', Ly, episode)
-            writer.add_scalar('tr_z', Lz, episode)
 
-            xx, yy, zz = self.test(o_te, d_te, s_te)
-            self.scheduler.step(xx+yy+zz)
-            writer.add_scalar('te_x', xx, episode)
-            writer.add_scalar('te_y', yy, episode)
-            writer.add_scalar('te_z', zz, episode)
-            if (xx+yy+zz) < best_loss:
-                best_loss = xx+yy+zz 
-                self.save("ckpt/obs1.pt")
 
-            '''
+            summary['tr_x'].append(Lx)
+            summary['tr_y'].append(Ly)
+            summary['tr_z'].append(Lz)
+            summary['tr_i'].append(episode)
             if (episode % 5 == 0):
-                tqdm.write("[INFO] epi %05d | loss: %10.4f, %10.4f, %10.4f |" % (episode, Lx, Ly, Lz))
-            if (episode % 20 == 0):
                 xx, yy, zz = self.test(o_te, d_te, s_te)
-                tqdm.write("[INFO] val loss: %10.4f, %10.4f, %10.4f" % (xx, yy, zz))
-                if (xx+yy+zz) < best_loss:
-                    best_loss = xx+yy+zz 
-                    self.save("ckpt/obs.pt")
-            '''
-        writer.close()
+                te_loss = xx+yy+zz
+                self.scheduler.step(te_loss)
+                summary['te_x'].append(xx)
+                summary['te_y'].append(yy)
+                summary['te_z'].append(zz)
+                summary['te_i'].append(episode)
+
+                if te_loss < best_loss:
+                    best_loss = te_loss
+                    self.save("ckpt/obs1.pt")
+
+            if (episode % 20 == 0):
+                plot_training(summary)
 
     def test(self, o_te, d_te, s_te):
         length = o_te.shape[0] 
@@ -241,7 +219,7 @@ def test_mask():
 if __name__ == "__main__":
     #test_mask()
     #test_rotation()
-    #generate_data()
+    #generate_data(100)
     dr = Derenderer() 
     dr.pretrain()
     #dr.visualize()

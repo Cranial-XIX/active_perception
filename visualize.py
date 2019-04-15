@@ -2,6 +2,7 @@ import clevr_envs
 import copy
 import json
 import gym
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import sys
@@ -56,3 +57,18 @@ def visualize_o(objects):
     check_path("img/obs")
     _, obs = env.reset(0)
     Image.fromarray(obs['a'][::-1]).save("img/obs/predicted.png")
+
+def plot_training(summary):
+    plt.figure() 
+    x, y, z, i = summary['tr_x'], summary['tr_y'], summary['tr_z'], summary['tr_i']
+    plt.plot(i, x, 'r', label='tr_x', linestyle='-')
+    plt.plot(i, y, 'b', label='tr_y', linestyle='-')
+    plt.plot(i, z, 'g', label='tr_z', linestyle='-')
+    x, y, z, i = summary['te_x'], summary['te_y'], summary['te_z'], summary['te_i']
+    plt.plot(i, x, 'r', label='te_x', linestyle='-.')
+    plt.plot(i, y, 'b', label='te_y', linestyle='-.')
+    plt.plot(i, z, 'g', label='te_z', linestyle='-.')
+    plt.legend(loc='upper right')
+    plt.title('training curve')
+    plt.savefig(summary['save_path'])
+    plt.close()
