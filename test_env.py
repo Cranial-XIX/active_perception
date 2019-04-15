@@ -1,5 +1,6 @@
 import clevr_envs
 import copy
+import json
 import gym
 import matplotlib.pyplot as plt
 import numpy as np
@@ -40,6 +41,31 @@ def test2():
     plt.close()
     print(d.shape)
 
+def test_rotation():
+    objects = []
+    xy = np.array([1.5, 0]).reshape(1,2)
+    for _ in range(8):
+        theta = np.pi/4*_
+        R = np.array([
+            [np.cos(theta), np.sin(theta)],
+            [-np.sin(theta), np.cos(theta)]])
+        s = np.matmul(xy, R) 
+        objects.append({
+            "idx": 0,
+            "3d_coords": [s[0,0],s[0,1], 0.25],
+            "material" : "metal",
+        })
+
+    scenes = [{'objects': objects}]
+    test_scenes = {'scenes': scenes}
+    json.dump(test_scenes, open(os.path.join("clevr_envs", "scene.json"), 'w'), indent=4)
+    env = gym.make('ActivePerception-v0')
+    _, obs = env.reset()
+    Image.fromarray(obs['o']).save("0.png")
+    obs    = env.step(np.pi/2)
+    Image.fromarray(obs['o']).save("1.png")
+    env.close()
+
 if __name__ == '__main__':
     #test()
-    test2()
+    test_rotation()
