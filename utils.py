@@ -66,10 +66,16 @@ def rotate_state(state, theta, device="cpu"):
     return s
 
 def trans_rgb(rgb):
+    """
+    return [1, C, H, W]
+    """
     rgb = torch.FloatTensor(rgb.transpose(2,0,1)/255-0.5).unsqueeze(0)
     return rgb
 
 def trans_d(d):
+    """
+    return [1, 1, H, W]
+    """
     return torch.FloatTensor(d).unsqueeze(0).unsqueeze(0)
 
 def get_estimated_state(p, w):

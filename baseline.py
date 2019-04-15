@@ -20,6 +20,26 @@ from visualize import *
 
 device = "cuda:3" if torch.cuda.is_available() else "cpu:0"
 
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.buffer = []
+        self.position = 0
+
+    def push(self, s, a, o, d):
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
+        self.buffer[self.position] = (s, a, o, d) 
+        self.position = (self.position+1) % self.capacity
+
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        s, a, o, d = map(torch.cat, zip(*batch))
+        return s, a, o, d
+
+    def __len__(self):
+        return len(self.buffer)
+
 class RNNFilter(nn.Module):
     def __init__(self):
         super(RNNFilter, self).__init__()
@@ -71,7 +91,6 @@ class RNNFilter(nn.Module):
 if __name__ == "__main__":
     env = gym.make('ActivePerception-v0')
 
-    #sac = SAC()
     rnn = RNNFilter().to(device)
 
     if len(sys.argv) > 1:
