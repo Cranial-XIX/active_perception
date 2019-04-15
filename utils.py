@@ -69,6 +69,9 @@ def trans_rgb(rgb):
     rgb = torch.FloatTensor(rgb.transpose(2,0,1)/255-0.5).unsqueeze(0)
     return rgb
 
+def trans_d(d):
+    return torch.FloatTensor(d).unsqueeze(0).unsqueeze(0)
+
 def get_estimated_state(p, w):
     """
     @param  p: [B, K, dim_state]

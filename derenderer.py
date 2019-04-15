@@ -17,8 +17,14 @@ class Derenderer(nn.Module):
     def __init__(self):
         super(Derenderer, self).__init__()
 
+        '''
         self.derenderer = nn.Sequential(
-            nn.Conv2d( 1, 8, 3, padding=1),
+            nn.Conv2d( 3, 4, 3, padding=1),
+            nn.BatchNorm2d(4),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Dropout(dropout),
+            nn.Conv2d( 4, 8, 3, padding=1),
             nn.BatchNorm2d(8),
             nn.ReLU(),
             nn.MaxPool2d(2),
@@ -28,12 +34,33 @@ class Derenderer(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Dropout(dropout),
+            nn.Conv2d( 16, 32, 3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Dropout(dropout),
             flatten(),
-            nn.Linear(16*16*16, 32),
+            nn.Linear(16*32, 64),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(32, dim_obj)
+            nn.Linear(64, dim_obj)
+        )'''
+        self.derenderer = nn.Sequential(
+                nn.Conv2d(3,1,5,2,2),
+                nn.ReLU(),
+                nn.MaxPool2d(3,2,1),
+                nn.Conv2d(1,4,3,padding=1),
+                nn.ReLU(),
+                nn.MaxPool2d(3,2,1),
+                flatten(),
+                nn.Linear(256, 16),
+                nn.Dropout(dropout),
+                nn.ReLU(),
+                nn.Linear(16, dim_obj),
+                nn.Tanh(),
         )
+        '''
+        '''
 
         self.masks = []
         for _ in MASK:
@@ -41,14 +68,16 @@ class Derenderer(nn.Module):
             mask = mask.repeat(batch_size,1,H,W).to(device)/255-0.5
             self.masks.append(mask)
 
-        self.opt = torch.optim.Adam(self.parameters(), 3e-4, weight_decay=1e-3)
+        self.opt = torch.optim.Adam(self.parameters(), 1e-3, weight_decay=1e-3)
 
-    def forward(self, x):
+    def forward(self, o, d):
         derendered = []
         exists = []
         for m in self.masks:
-            mask  = ((x - m).abs().sum(1, keepdim=True) < 1e-1) # [:, 1, H, W]
-            dr    = self.derenderer(mask.float()).unsqueeze(1)  # [:, 1, dim_obj]
+            mask  = ((o - m).abs().sum(1, keepdim=True) < 1e-1).float() # [:, 1, H, W]
+            #x     = torch.cat((mask*o,mask*d), 1)
+            x     = mask*o
+            dr    = self.derenderer(x).unsqueeze(1)*2                   # [:, 4, dim_obj]
             exist = (mask.view(batch_size, -1).sum(1, keepdim=True) > 0).float()
             derendered.append(dr)
             exists.append(exist)
@@ -60,8 +89,9 @@ class Derenderer(nn.Module):
         s    : [:, n_obj, dim_obj]
         exist: [:, n_obj]
         """
-        exist = exist.unsqueeze(-1)
-        loss  = F.mse_loss(exist*s_, exist*s)
+        exist = exist
+        #loss  = [F.mse_loss(exist*s_[:,:,_], exist*s[:,:,_]) for _ in range(3)]
+        loss  = [(exist*s_[:,:,_]-exist*s[:,:,_]).pow(2).view(s_.shape[0],-1).sum(1).mean() for _ in range(3)]
         return loss
 
     def save(self, path):
@@ -74,50 +104,55 @@ class Derenderer(nn.Module):
         self.to(device)
         train_data = torch.load("data/observation.train")
         test_data  = torch.load("data/observation.val")
-        o_te, s_te = map(torch.cat, zip(*test_data))
-        o_tr, s_tr = map(torch.cat, zip(*train_data))
+        o_te, d_te, s_te = map(torch.cat, zip(*test_data))
+        o_tr, d_tr, s_tr = map(torch.cat, zip(*train_data))
         length = len(train_data)
         del train_data; del test_data
 
         best_loss = np.inf
         for episode in tqdm(range(1, 1001)):
-            L   = 0
+            Lx = Ly = Lz = 0
             idx = np.random.choice(length, length, False)
-            observations, states = o_tr[idx], s_tr[idx]
+            o_tr, d_tr, s_tr = o_tr[idx], d_tr[idx], s_tr[idx]
             for _ in range(0, length-batch_size, batch_size):
                 o     = o_tr[_:_+batch_size].to(device)
+                d     = d_tr[_:_+batch_size].to(device)
                 s     = s_tr[_:_+batch_size].to(device)
-                s_, e = self.forward(o)
+                s_, e = self.forward(o, d)
 
                 self.opt.zero_grad()
                 loss  = self.loss(s_, s, e)
-                loss.backward()
+                (loss[0]+loss[1]+loss[2]).backward()
                 self.opt.step()
-                L    += loss.item()
-            L /= (length//batch_size)
-            if (episode % 10 == 0):
-                tqdm.write("[INFO] epi %05d | loss: %10.4f |" % (episode, L))
+                Lx   += loss[0].item()
+                Ly   += loss[1].item()
+                Lz   += loss[2].item()
+            divide = length // batch_size
+            Lx /= divide; Ly /= divide; Lz /= divide
+            if (episode % 5 == 0):
+                tqdm.write("[INFO] epi %05d | loss: %10.4f, %10.4f, %10.4f |" % (episode, Lx, Ly, Lz))
             if (episode % 20 == 0):
-                loss = self.test(o_te, s_te)
-                if loss < best_loss:
-                    best_loss = loss
-                    tqdm.write("[INFO] best val loss: %10.4f" % best_loss)
+                xx, yy, zz = self.test(o_te, d_te, s_te)
+                tqdm.write("[INFO] val loss: %10.4f, %10.4f, %10.4f" % (xx, yy, zz))
+                if (xx+yy+zz) < best_loss:
+                    best_loss = xx+yy+zz 
                     self.save("ckpt/obs.pt")
 
-    def test(self, o_te, s_te):
+    def test(self, o_te, d_te, s_te):
         self.eval()
         length = o_te.shape[0] 
-        L   = 0
-        idx = np.random.choice(length, length, False)
-        observations, states = o_te[idx], s_te[idx]
+        Lx = Ly = Lz = 0
         for _ in range(0, length-batch_size, batch_size):
             o     = o_te[_:_+batch_size].to(device)
+            d     = d_te[_:_+batch_size].to(device)
             s     = s_te[_:_+batch_size].to(device)
-            s_, e = self.forward(o)
-            L    += self.loss(s_, s, e).item()
-        L /= (length//batch_size)
+            s_, e = self.forward(o, d)
+            loss  = self.loss(s_, s, e)
+            Lx += loss[0].item(); Ly += loss[1].item(); Lz += loss[2].item()
+        d = (length//batch_size)
+        Lx /= d; Ly /= d; Lz /= d
         self.train()
-        return L
+        return Lx, Ly, Lz
 
     def visualize(self):
         self.load("ckpt/obs.pt")
@@ -141,18 +176,18 @@ class Derenderer(nn.Module):
         env.close()
         visualize_o(objects)
 
-def generate_data(total=100):
+def generate_data(total=10000):
     env = gym.make('ActivePerception-v0')
     data = []
     for _ in tqdm(range(total)):
-        scene_data, obs = env.reset()
+        scene_data, obs = env.reset(False)
         state = get_state(scene_data)
-        data.append((trans_rgb(obs['o']), state))
+        data.append((trans_rgb(obs['o']), trans_d(obs['d']), state))
         for j in range(1, 8):
             th = np.pi/4*j 
             obs = env.step(th)
             state = rotate_state(state, -th)
-            data.append((trans_rgb(obs['o']), state))
+            data.append((trans_rgb(obs['o']), trans_d(obs['d']), state))
     threshold = int(total * 0.99)
     train = data[:threshold]
     val   = data[threshold:]
@@ -192,7 +227,7 @@ def test_mask():
 if __name__ == "__main__":
     #test_mask()
     #test_rotation()
-    generate_data(10000)
+    #generate_data()
     dr = Derenderer() 
     dr.pretrain()
     #dr.visualize()

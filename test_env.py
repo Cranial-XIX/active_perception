@@ -1,6 +1,7 @@
 import clevr_envs
 import copy
 import gym
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import sys
@@ -29,5 +30,16 @@ def test():
         #env.step(env.action_space.sample())
     '''
 
+def test2():
+    env = gym.make('ActivePerception-v0')
+    _, o = env.reset()
+    rgb, d = o['o'], o['d']
+    Image.fromarray(rgb).save("rgb.png")
+    plt.imshow(d)
+    plt.savefig("depth.png", cmap='gray')
+    plt.close()
+    print(d.shape)
+
 if __name__ == '__main__':
-    test()
+    #test()
+    test2()

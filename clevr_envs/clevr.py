@@ -120,6 +120,7 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
     def __init__(self, control_freq=50):
         # load scene data
         self.control_freq = control_freq
+        self.sid = 0
         self.load_scene()
 
     def load_scene(self, test=False):
@@ -129,8 +130,8 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
         self.scenes = clevr_data['scenes']
         self.total_scenes = len(self.scenes)
 
-    def start(self, scene_id):
-        self.scene_data = self.scenes[scene_id]
+    def start(self):
+        self.scene_data = self.scenes[self.sid]
 
         # load the mesh and add the objects
         self.tree = ET.parse(BASE_XML_FILE)
@@ -221,32 +222,40 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
         return False
 
     def _get_obs(self):
+        '''
         birdview_obs = self.sim.render(camera_name="external_camera_1",
                                      width=512,
                                      height=512,
                                      depth=True)
+        '''
 
         agent_obs = self.sim.render(camera_name="agent_camera",
                                      width=64,
                                      height=64,
                                      depth=True)
 
+        '''
         large_agent_obs = self.sim.render(camera_name="agent_camera",
                                      width=512,
                                      height=512,
                                      depth=True)
-        o = agent_obs[0].copy()
+        '''
+        o_rgb = agent_obs[0][::-1].copy()
+        o_d   = agent_obs[1][::-1].copy()
         #o = cv2.GaussianBlur(o, (3, 3), 3)
         return {
-            'b' : birdview_obs[0].copy(),
-            'a' : large_agent_obs[0].copy(),
-            'o': o,
+            #'b' : birdview_obs[0].copy(),
+            #'a' : large_agent_obs[0].copy(),
+            'o': o_rgb,
+            'd': o_d
         }
 
-    def reset(self, scene_id=None):
-        if scene_id is None:
-            scene_id = np.random.randint(self.total_scenes)
-        self.start(scene_id=scene_id)
+    def reset(self, random=True):
+        if random:
+          self.sid = np.random.randint(self.total_scenes)
+        else:
+          self.sid = (self.sid+1) % self.total_scenes
+        self.start()
         return (copy.deepcopy(self.scene_data['objects']), self.step(0))
 
     def render(self, mode='human'):
