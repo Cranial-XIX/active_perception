@@ -49,6 +49,7 @@ class RNNFilter(nn.Module):
 
         self.filter     = nn.GRU(16, dim_hidden, b_num_layers)
         self.derenderer = Derenderer()
+        self.derenderer.load("ckpt/dr.pt")
         self.decoder    = nn.Sequential(
             nn.Linear(dim_hidden, dim_hidden),
             nn.ReLU(),
@@ -71,8 +72,8 @@ class RNNFilter(nn.Module):
             a_tm1 = torch.zeros(batch, 1).to(device)
 
         d, e = self.derenderer(o_t, d_t)
-        x    = rotate_state(d, a_tm1, device)
-        x    = torch.cat((x, e.unsqueeze(-1)), -1).view(-1, 16)
+        x    = rotate_state2(d, a_tm1)
+        x    = torch.cat((x, e.unsqueeze(-1)), -1).view(1, -1, 16)
         x, h = self.filter(x, h_tm1)
         x    = self.decoder(x).view(-1, n_obj, dim_obj)
         return x, h
@@ -109,7 +110,7 @@ class RNNFilter(nn.Module):
             if _ == 0:
                 x, h = self.forward(O[:,_,:,:,:], D[:,_,:,:,:])
             else:
-                x, h = self.forward(O[:,_,:,:,:], A[:,_-1,:], h)
+                x, h = self.forward(O[:,_,:,:,:], D[:,_,:,:,:], A[:,_-1,:], h)
             e2e_loss += self.e2e_loss_fn(x, S[:,_,:,:])
 
         e2e_loss /= n_steps
@@ -164,6 +165,7 @@ if __name__ == "__main__":
         if len(rnn.rb) > batch_size:
             loss = rnn.update_parameters()
             if loss < best_loss:
+                tqdm.write("[INFO] best loss %10.4f" % loss)
                 best_loss = loss
                 rnn.save_model(save_path)
     pbar.close()

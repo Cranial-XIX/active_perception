@@ -17,6 +17,7 @@ class Derenderer(nn.Module):
     def __init__(self):
         super(Derenderer, self).__init__()
 
+        '''
         self.derenderer = nn.Sequential(
                 nn.Conv2d(7,8,5,2,2),
                 nn.Dropout(dropout),
@@ -28,6 +29,20 @@ class Derenderer(nn.Module):
                 nn.MaxPool2d(3,2,1),
                 flatten(),
                 nn.Linear(512, 64),
+                nn.Dropout(dropout),
+                nn.ReLU(),
+                nn.Linear(64, dim_obj)
+        )
+        '''
+        self.derenderer = nn.Sequential(
+                nn.Conv2d(7,4,5,2,2),
+                nn.Dropout(dropout),
+                nn.ReLU(),
+                nn.Conv2d(4,4,3,padding=1),
+                nn.Dropout(dropout),
+                nn.ReLU(),
+                flatten(),
+                nn.Linear(32*32*4, 64),
                 nn.Dropout(dropout),
                 nn.ReLU(),
                 nn.Linear(64, dim_obj)
@@ -70,7 +85,7 @@ class Derenderer(nn.Module):
     def load(self, path):
         self.load_state_dict(torch.load(path))
 
-    def pretrain(self):
+    def pretrain(self, name='dr'):
         self.to(device)
         train_data = torch.load("data/observation.train")
         test_data  = torch.load("data/observation.val")
@@ -89,7 +104,7 @@ class Derenderer(nn.Module):
                 'te_y': [],
                 'te_z': [],
                 'te_i': [],
-                'save_path': 'ckpt/derenderer_train_curve.png',
+                'save_path': 'ckpt/'+name+'.png',
         }
         for episode in tqdm(range(1, 1001)):
             Lx = Ly = Lz = 0
@@ -111,7 +126,6 @@ class Derenderer(nn.Module):
             divide = length // batch_size
             Lx /= divide; Ly /= divide; Lz /= divide
 
-
             summary['tr_x'].append(Lx)
             summary['tr_y'].append(Ly)
             summary['tr_z'].append(Lz)
@@ -127,7 +141,7 @@ class Derenderer(nn.Module):
 
                 if te_loss < best_loss:
                     best_loss = te_loss
-                    self.save("ckpt/obs1.pt")
+                    self.save('ckpt/'+name+'.pt')
 
             if (episode % 20 == 0):
                 plot_training(summary)
@@ -220,6 +234,7 @@ if __name__ == "__main__":
     #test_mask()
     #test_rotation()
     #generate_data(100)
-    dr = Derenderer() 
-    dr.pretrain()
+    name = sys.argv[1] if len(sys.argv)>1 else 'dr'
+    dr = Derenderer()
+    dr.pretrain(name)
     #dr.visualize()

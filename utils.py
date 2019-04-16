@@ -53,7 +53,7 @@ def get_spherical_state(scene_data):
 def rotate_state(state, theta, device="cpu"):
     """
     rotate the cartesian coordinates counter-clockwise by theta (only x,y)
-    state: [B, n_obj*dim_obj]
+    state: [B, n_obj, dim_obj]
     """
     s  = state.clone()
     xy = s[:,:,:2]
@@ -62,6 +62,21 @@ def rotate_state(state, theta, device="cpu"):
         [np.cos(theta), np.sin(theta)],
         [-np.sin(theta), np.cos(theta)]]).to(device)
     xy = xy.view(-1, 2).mm(R).view(-1, n_obj, 2)
+    s  = torch.cat((xy, z), -1)
+    return s
+
+def rotate_state2(state, theta):
+    """
+    rotate the cartesian coordinates counter-clockwise by theta (only x,y)
+    state: [B, n_obj, dim_obj]
+    """
+    s  = state.clone()
+    xy = s[:,:,:2]
+    z  = s[:,:,2].unsqueeze(-1)
+    co = torch.cos(theta)
+    si = torch.sin(theta)
+    R  = torch.cat([co, si, -si, co], -1).view(-1, 2, 2) 
+    xy = torch.cat([a.mm(b).unsqueeze(0) for (a,b) in zip(xy, R)])
     s  = torch.cat((xy, z), -1)
     return s
 
