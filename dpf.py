@@ -12,124 +12,103 @@ import torch.optim as optim
 
 from PIL import Image
 from config import *
+from derenderer import *
+from rnn_filter import *
 from sac import SAC
-from utils import *
+from torch.distributions.categorical import Categorical
 from tqdm import tqdm
+from utils import *
 from visualize import *
 
-device = "cuda:3" if torch.cuda.is_available() else "cpu:0"
 
 class DPF(nn.Module):
     def __init__(self):
         super(DPF, self).__init__()
 
-        self.encoder = nn.Sequential(
-            nn.Conv2d( 3, 8, 3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d( 8, 16, 3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(16, 32, 3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, 3, padding=1),
-            flatten(),
-            nn.Linear(64*64, dim_hidden),
-            nn.ReLU(),
-            nn.Linear(dim_hidden, dim_input)
-        )
+        self.rb = ReplayBuffer(9900)
+        self.derenderer = Derenderer()
+        #self.derenderer.load("ckpt/dr.pt")
 
-        self.proposer = nn.Sequential(
-            nn.Linear(dim_input, dim_hidden),
+        ### the particle proposer
+        self.generator = nn.Sequential(
+            nn.Linear(16, dim_hidden),
             nn.ReLU(),
             nn.Linear(dim_hidden, K*dim_state)
         )
 
-        self.observation = nn.Sequential(
-            nn.Linear(dim_state+dim_input, dim_hidden),
+        ### the observation model (discriminator)
+        self.discriminator = nn.Sequential(
+            nn.Linear(dim_state+16, dim_hidden),
             nn.ReLU(),
             nn.Linear(dim_hidden, 1)
         )
+        self.alpha = 0.8 
+        #self.opt_d = torch.optim.SGD(self.discriminator.parameters())
+        #self.opt_g = torch.optim.SGD(self.generator.parameters())
+        self.opt_f = torch.optim.Adam(
+                list(self.discriminator.parameters()) \
+                        +list(self.generator.parameters()), 
+                lr=3e-4)
 
-    def save_model(self, path):
-        stats = {}
-        stats['e'] = self.encoder.state_dict()
-        stats['p'] = self.proposer.state_dict()
-        stats['o'] = self.observation.state_dict()
-        torch.save(stats, path)
-
-    def load_model(self, path):
-        stats = torch.load(path)
-        self.encoder.load_state_dict(stats['e'])
-        self.proposer.load_state_dict(stats['p'])
-        self.observation.load_state_dict(stats['o'])
-
-    def forward(self, o_t, a_t=None, p_t=None, w_t=None):
+    def forward(self, o_t, d_t, a_tm1=None, p_tm1=None, w_tm1=None, n_new=0):
         """
-        o_t: [B, C, W, H]
-        a_t: [B, 1]
-        p_t: [B, K, dim_state]
-        w_t: [B, K]
+        params
+            o_t  : [:, C, H, W]
+            d_t  : [:, 1, H, W]
+            a_tm1: [:, 1]
+            p_tm1: [:, K, n_obj, dim_obj]
+            w_tm1: [:, K]
         -------------------------
         return
-        p_t, w_t same shape
-        proposed: [B, K, dim_state]
+            p_t  : [:, K, n_obj, dim_obj]
+            w_t  : [:, K]
+            p_n  : [B, K, dim_state]
         """
-        encoded_o_t = self.encoder(o_t) # [B, dim_input]
-        B = o_t.shape[0]
+        B    = o_t.shape[0]
+        if p_tm1 is None:
+            a_tm1 = torch.zeros(B, 1).to(device)
 
-        proposed = self.propose(encoded_o_t) # [B, K, dim_state]
-        if p_t is None:
+        d, e = self.derenderer(o_t, d_t)
+        x    = rotate_state2(d, a_tm1)
+        x    = torch.cat((x, e.unsqueeze(-1)), -1).view(B, 16)
+        p_n  = self.generator(x).view(B, K, n_obj, dim_obj)
+
+        if p_tm1 is None:
             w_t = torch.Tensor(B, K).fill_(-np.log(K)).to(device)
-            #p_t = self.transit(proposed, a_t, cond)
-            return proposed, w_t, proposed.mean(1)
+            return p_n, w_t, p_n, x
         else:
-            p_t = self.transit(p_t, a_t)
-            w_t += self.update_weight(p_t, encoded_o_t)
+            w_t = w_tm1 + self.update_belief(p_tm1, x)
+            p_t = p_tm1
+            if n_new > 0:
+                p_t, w_t = self.resample(p_t, w_t, K-n_new)
+                w_t = torch.cat((w_t, torch.Tensor(B, n_new).fill_(-np.log(K)).to(device)), 1)
+                p_t = torch.cat((p_t, p_n[:,:n_new]), 1)
+            elif n_new < 0: # just resample
+                p_t, w_t = self.resample(p_t, w_t, K)
+            w_t -= w_t.max(1, keepdim=True)[0]
 
-        return p_t, w_t, proposed.mean(1)
+        return p_t, w_t, p_n, x
 
-    def propose(self, encoded_o_t):
+    def update_belief(self, p, x):
         """
-        o_t: [B, dim_input]
-        propose particles [B, K, dim_state]
+        p: [:, K, n_obj, dim_obj]
+        x: [:, 16]
         """
-        p = self.proposer(encoded_o_t).view(1, K, -1)
-        
-        e   = torch.sigmoid(p[:,:,0::4]).unsqueeze(-1)
-        r   = F.relu(p[:,:,1::4]).unsqueeze(-1)
-        phi = (torch.sigmoid(p[:,:,2::4]) * 2*np.pi).unsqueeze(-1)
-        th  = (torch.sigmoid(p[:,:,3::4]) * np.pi).unsqueeze(-1)
-        p   = torch.cat((e,r,phi,th), -1).view(-1, K, dim_state)
-        return p
+        x = torch.cat((
+            p.view(-1, K, dim_state), 
+            x.unsqueeze(1).repeat(1,K,1)), -1) # [:, K, 16+dim_state]
+        return self.discriminator(x).squeeze(-1)
 
-    def transit(self, s_t, a_t):
-        """
-        s_t:  [B, K, dim_state]
-        a_t:  [B, 1]
-        """
-        s_t[:,:,2::4] += a_t.unsqueeze(1).repeat(1, K, 1)
-        return s_t.fmod(2*np.pi)
-
-    def update_weight(self, s_t, encoded_o_t):
-        """
-        s_t: [B, K, dim_state]
-        o_t: [B, dim_input]
-        """
-        x = torch.cat((s_t, encoded_o_t.unsqueeze(0).repeat(1,K,1)), -1)
-        return self.observation(x).squeeze(-1)
-
-    def resample(self, s_t, w_t):
+    def resample(self, p_t, w_t, n):
         """
         soft-resampling
         """
-        batch_size, n_particles, dim_state = s_t.shape
+        batch_size = p_t.shape[0]
         w_t = w_t - torch.logsumexp(w_t, 1, keepdim=True) # normalize
 
         # create uniform weights for soft resampling
-        uniform_w = torch.Tensor(batch_size, n_particles)
-        uniform_w = uniform_w.fill_(-np.log(n_particles)).to(self.cfg.device)
+        uniform_w = torch.Tensor(batch_size, K)
+        uniform_w = uniform_w.fill_(-np.log(K)).to(device)
 
         if self.alpha < 1.0:
             q_w = torch.stack(
@@ -137,138 +116,122 @@ class DPF(nn.Module):
                 -1
             ) # [:, n_particles, 2]
 
-            # q_w = log(alpha*~w + (1-alpha)*1/n_particles)
-            q_w = torch.logsumexp(q_w, -1)
+            q_w = torch.logsumexp(q_w, -1) # q_w=log(a*~w + (1-a)*1/n_particles)
             q_w = q_w - torch.logsumexp(q_w, -1, keepdim=True)
             w_t = w_t - q_w
         else:
             q_w = w_t
             w_t = uniform_w
 
-        #n_new = int(n_particles * self.beta)
-        n = n_particles
+        m = Categorical(logits=q_w) # sample n_old from old particles
+        i = m.sample((n,)).t()
+        w = w_t.gather(1, i)
+        p = p_t.gather(1, i.view(-1,n,1,1).repeat(1,1,n_obj,dim_obj))
+        return p, w
 
-        m = Categorical(logits=q_w)
-        idx = m.sample((n,)).t()    # [:, n]
+    def save_model(self, path):
+        torch.save(self.state_dict(), path)
 
-        w_t = w_t.gather(1, idx)    # [:, n]
+    def load_model(self, path):
+        self.load_state_dict(torch.load(path))
 
-        # s_t [:, n_old, dim_state]
-        s_t = s_t.gather(1, idx.unsqueeze(2).expand(-1, -1, dim_state))
-        return s_t, w_t
+    def to_device(self, x):
+        return x.to(device)
+
+    def e2e_loss_fn(self, p, w, s):
+        """
+        calculate the negative log likelihood of s given (p, w)
+        p: [B, K, n_obj, dim_obj]
+        w: [B, K]
+        s: [B, n_obj, dim_obj]
+        """
+        w = w - torch.logsumexp(w.detach(), -1, keepdim=True) # normalize w
+        x = (p - s.unsqueeze(1)).pow(2).sum(-1).sum(-1) * 0.1 / 2
+        # w: [B, K], x: [B, K]
+        loss = -torch.logsumexp(w-x, 1).mean()
+        return loss
+
+    def update_parameters(self):
+        S, A, O, D = self.rb.sample(batch_size)
+        S, A, O, D = map(self.to_device, [S, A, O, D])
+
+        n_steps = S.shape[1]
+
+        ### end-to-end loss
+        self.opt_f.zero_grad()
+        e2e_loss = 0
+        p, w = None, None
+        for _ in range(n_steps):
+            n_new = int(K* (0.7**_))
+            if _ == 0:
+                p, w, p_n, x = self.forward(
+                        O[:,_,:,:,:], 
+                        D[:,_,:,:,:], 
+                        n_new=n_new)
+            else:
+                p, w, p_n, x = self.forward(
+                        O[:,_,:,:,:], 
+                        D[:,_,:,:,:], 
+                        A[:,_-1,:], 
+                        p, 
+                        w, 
+                        n_new)
+            e2e_loss += self.e2e_loss_fn(p, w, S[:,_,:,:])
+
+        e2e_loss /= n_steps
+        e2e_loss.backward()
+        self.opt_f.step()
+        
+        return e2e_loss.item()
+
+def train_dpf():
+    env = gym.make('ActivePerception-v0')
+    dpf = DPF().to(device)
+
+    # set up the experiment folder
+    experiment_id = "dpf_" + get_datetime()
+    save_path = CKPT+experiment_id+".pt"
+
+    max_frames = 1000000
+    frame_idx  = 0
+    best_loss  = np.inf
+    pbar       = tqdm(total=max_frames)
+    while frame_idx < max_frames:
+        pbar.update(1)
+
+        if frame_idx < 9900*8: # adding train set to buffer 
+            S, A, O, D = [], [], [], []
+            scene_data, obs = env.reset(False)
+
+            s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
+            o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
+            d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
+            S.append(s); O.append(o); D.append(d)
+
+            for step in range(1, 8):
+                frame_idx += 1
+                th  = np.pi/4*step
+                obs = env.step(th)
+
+                s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
+                o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
+                d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
+                a = torch.FloatTensor(1,1).fill_(th) # [1, 1]              action
+                S.append(s); O.append(o); D.append(d); A.append(a)
+
+            S = torch.cat(S).unsqueeze(0) # [1, 8, n_obj, dim_obj]
+            A = torch.cat(A).unsqueeze(0) # [1, 8, 1]
+            O = torch.cat(O).unsqueeze(0) # [1, 8, C, H, W]
+            D = torch.cat(D).unsqueeze(0) # [1, 8, 1, H, W]
+            dpf.rb.push(S, A, O, D)
+
+        if len(dpf.rb) > batch_size:
+            loss = dpf.update_parameters()
+            if loss < best_loss:
+                tqdm.write("[INFO] best loss %10.4f" % loss)
+                best_loss = loss
+                dpf.save_model(save_path)
+    pbar.close()
 
 if __name__ == "__main__":
-    env = gym.make('ActivePerception-v0')
-
-    sac = SAC()
-    dpf = DPF().to(device)
-    if len(sys.argv) > 1:
-        if not os.path.exists(sys.argv[1]+"_model.pt"):
-            print("[ERROR] Unknown path to load model")
-            sys.exit(1)
-        else:
-            sac.load_model(sys.argv[1]+"_sac.pt")
-            lstm.load_model(sys.argv[1]+"_model.pt")
-        dpf.eval()
-        max_steps  = 5
-
-        scene_data, obs = env.reset()
-        target = get_spherical_state(scene_data).reshape(-1).numpy()
-    else:
-        opt  = optim.Adam(dpf.parameters(), lr=1e-4)
-
-        # set up the experiment folder
-        experiment_id = "dpf_" + get_datetime()
-        save_path = CKPT+experiment_id
-        img_path = IMG+experiment_id
-        check_path(img_path)
-
-        max_frames = 1000000
-        max_steps  = 5
-        frame_idx  = 0
-        rewards    = []
-        batch_size = 64
-
-        episode    = 0
-        bptt_step  = 10
-
-        # regression loss for filtering
-        criterion = LossFn() 
-
-        # Update, use HER to train for sparse reward
-        best_reward = -1
-        pbar = tqdm(total=frame_idx)
-        best_loss = np.inf
-        while frame_idx < max_frames:
-            episode += 1
-            pbar.update(1)
-
-            scene_data, obs = env.reset()
-            target = get_spherical_state(scene_data).to(device)
-
-            states, actions, rewards, dones = [], [], [], []
-            episode_loss = 0
-            episode_l2_loss = 0
-            rgb = trans_rgb(obs['o']).to(device) # [1, 3, 64, 64]
-            g, (h, c) = dpf(rgb)
-            #guess_state = g.detach().cpu().squeeze().numpy()
-            B = h.shape[0]
-            guess_state = torch.cat((h.view(B,-1), c.view(B,-1)), -1).detach().cpu()
-            states.append(guess_state)
-            e_loss, l2_loss = criterion(g, target)
-            loss = e_loss + l2_loss
-            opt.zero_grad(); loss.backward(retain_graph=True); opt.step()
-            episode_loss += loss.item()
-            episode_l2_loss += l2_loss.item()
-
-            for step in range(max_steps):
-                # SAC planning
-                a = sac.policy_net.get_action(guess_state.reshape(1,-1))
-                obs = env.step(a.item())
-
-                if (step+1) % bptt_step == 0:
-                    h, c = h.detach(), c.detach()
-
-                rgb = trans_rgb(obs['o']).to(device) # [1, 3, 64, 64]
-                g, (h, c) = lstm(
-                        rgb,
-                        torch.FloatTensor(a).view(1,1).to(device),
-                        h, c)
-                #guess_state = g.detach().cpu().squeeze().numpy()
-                B = h.shape[0]
-                guess_state = torch.cat((h.view(B,-1), c.view(B,-1)), -1).detach().cpu()
-                e_loss, l2_loss = criterion(g, target)
-                loss = e_loss + l2_loss
-                opt.zero_grad(); loss.backward(retain_graph=True); opt.step()
-
-                l = loss.item()
-                episode_loss += l
-                episode_l2_loss += l2_loss.item()
-                reward = np.exp(-l + 3)
-                done   = l < 5e-3
-
-                states.append(guess_state)
-                actions.append(np.array([a.item()]))
-                rewards.append(np.array([reward]))
-                dones.append(done)
-
-                frame_idx += 1
-                if done:
-                    tqdm.write("[INFO] solved in %d steps!" % (step+1))
-                    break
-
-            # Replay buffer
-            states, nstates = states[:-1], states[1:]
-            for i, (s, a, r, n, d) in enumerate(zip(states, actions, rewards, nstates, dones)):
-                sac.replay_buffer.push(s, a, r, n, d)
-
-            if episode % 10 == 0:
-                tqdm.write("[INFO] episode %10d | loss %10.4f "\
-                        "| best %10.4f | l2_loss %10.4f" % (
-                            episode, episode_loss, best_loss, episode_l2_loss))
-                if episode_loss < best_loss:
-                    best_loss = episode_loss
-                    sac.save_model(save_path+"_sac.pt")
-                    lstm.save_model(save_path+"_model.pt")
-
-        pbar.close()
+    train_dpf()

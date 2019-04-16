@@ -62,7 +62,7 @@ class RNNFilter(nn.Module):
         super(RNNFilter, self).__init__()
 
         self.h0 = nn.Parameter(torch.randn(b_num_layers, 1, dim_hidden))
-        self.rb = ReplayBuffer(10000)
+        self.rb = ReplayBuffer(9900)
 
         self.filter     = nn.GRU(16, dim_hidden, b_num_layers)
         self.derenderer = Derenderer()
@@ -138,10 +138,7 @@ class RNNFilter(nn.Module):
 
 def train_filter():
     env = gym.make('ActivePerception-v0')
-
     rnn = RNNFilter().to(device)
-
-    opt  = optim.Adam(rnn.parameters(), lr=1e-4)
 
     # set up the experiment folder
     experiment_id = "rnn_" + get_datetime()
@@ -154,30 +151,31 @@ def train_filter():
     while frame_idx < max_frames:
         pbar.update(1)
 
-        S, A, O, D = [], [], [], []
-        scene_data, obs = env.reset(False)
-
-        s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
-        o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
-        d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
-        S.append(s); O.append(o); D.append(d)
-
-        for step in range(1, 8):
-            frame_idx += 1
-            th  = np.pi/4*step
-            obs = env.step(th)
+        if frame_idx < 9900*8: # adding train set to buffer 
+            S, A, O, D = [], [], [], []
+            scene_data, obs = env.reset(False)
 
             s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
             o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
             d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
-            a = torch.FloatTensor(1,1).fill_(th) # [1, 1]              action
-            S.append(s); O.append(o); D.append(d); A.append(a)
+            S.append(s); O.append(o); D.append(d)
 
-        S = torch.cat(S).unsqueeze(0) # [1, 8, n_obj, dim_obj]
-        A = torch.cat(A).unsqueeze(0) # [1, 8, 1]
-        O = torch.cat(O).unsqueeze(0) # [1, 8, C, H, W]
-        D = torch.cat(D).unsqueeze(0) # [1, 8, 1, H, W]
-        rnn.rb.push(S, A, O, D)
+            for step in range(1, 8):
+                frame_idx += 1
+                th  = np.pi/4*step
+                obs = env.step(th)
+
+                s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
+                o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
+                d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
+                a = torch.FloatTensor(1,1).fill_(th) # [1, 1]              action
+                S.append(s); O.append(o); D.append(d); A.append(a)
+
+            S = torch.cat(S).unsqueeze(0) # [1, 8, n_obj, dim_obj]
+            A = torch.cat(A).unsqueeze(0) # [1, 8, 1]
+            O = torch.cat(O).unsqueeze(0) # [1, 8, C, H, W]
+            D = torch.cat(D).unsqueeze(0) # [1, 8, 1, H, W]
+            rnn.rb.push(S, A, O, D)
 
         if len(rnn.rb) > batch_size:
             loss = rnn.update_parameters()
