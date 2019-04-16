@@ -40,6 +40,23 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
+class Baseline(nn.Module):
+    def __init__(self):
+        super(Baseline, self).__init__()
+        self.derenderer = Derenderer()
+        self.derenderer.load("ckpt/dr.pt")
+
+    def forward(self, o_t, d_t, a_tm1=None):
+        if a_tm1 == None:
+            batch = o_t.shape[0]
+            a_tm1 = torch.zeros(batch, 1).to(device)
+
+        d, e = self.derenderer(o_t, d_t)
+        x    = rotate_state2(d, a_tm1)
+        e    = e.unsqueeze(-1)
+        x    = x*e
+        return x, e
+
 class RNNFilter(nn.Module):
     def __init__(self):
         super(RNNFilter, self).__init__()
@@ -119,7 +136,7 @@ class RNNFilter(nn.Module):
         
         return e2e_loss.item()
 
-if __name__ == "__main__":
+def train_filter():
     env = gym.make('ActivePerception-v0')
 
     rnn = RNNFilter().to(device)
@@ -169,3 +186,69 @@ if __name__ == "__main__":
                 best_loss = loss
                 rnn.save_model(save_path)
     pbar.close()
+
+def test_baseline(n_actions=1):
+    env = gym.make('ActivePerception-v0')
+    env.sid = 9900 # test
+    base = Baseline().to(device)
+
+    mse = 0
+    for episode in range(100):
+        scene_data, obs = env.reset(False)
+
+        s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
+        o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
+        d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
+
+        x, e = base(o, d)
+        s_   = x.detach().cpu()              # [1, n_obj, dim_obj]
+        e_   = e.detach().cpu()              # [1, n_obj, 1]
+        for step in range(n_actions):        # n_actions allowed
+            th   = np.pi/4 * np.random.randint(1, 8)
+            obs  = env.step(th)
+            o = trans_rgb(obs['o']).to(device)
+            d = trans_d(obs['d']).to(device)
+
+            th   = torch.FloatTensor([th]).view(1, -1).to(device)
+            x, e = base(o, d, th)
+            s_  += x
+            e_  += e
+        s_ /= (e_+1e-10)
+        mse += (s - s_).pow(2).sum().sqrt()
+    return mse
+
+def test_rnn(path, n_actions=1):
+    env = gym.make('ActivePerception-v0')
+    env.sid = 9900 # test
+    rnn = RNNFilter().to(device)
+    rnn.load_model(path)
+
+    mse = 0
+    for episode in range(100):
+        scene_data, obs = env.reset(False)
+
+        s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
+        o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
+        d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
+
+        s_, h = rnn(o, d)
+        for step in range(n_actions):        # n_actions allowed
+            th   = np.pi/4 * np.random.randint(1, 8)
+            obs  = env.step(th)
+            o = trans_rgb(obs['o']).to(device)
+            d = trans_d(obs['d']).to(device)
+
+            th    = torch.FloatTensor([th]).view(1, -1).to(device)
+            s_, h = rnn(o, d, th, h)
+        mse += (s - s_).pow(2).sum().sqrt()
+    return mse
+
+if __name__ == "__main__":
+    if len(sys.argv) == 1:
+        train_filter()
+    elif sys.argv[1] == 'r':
+        test_rnn(sys.argv[2])
+    elif sys.argv[1] == 'b':
+        test_baseline()
+    else:
+        print("[ERROR] Unknown flag")

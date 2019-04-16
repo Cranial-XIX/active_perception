@@ -58,6 +58,11 @@ class Derenderer(nn.Module):
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.opt, 'min')
 
     def forward(self, o, d):
+        """
+        return:
+            derendered: [:, 4, dim_obj]
+            exists    : [:, 4]
+        """
         derendered = []
         exists = []
         for m in self.masks:
