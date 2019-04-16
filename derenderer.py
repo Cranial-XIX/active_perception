@@ -51,7 +51,7 @@ class Derenderer(nn.Module):
         self.masks = []
         for _ in MASK:
             mask = torch.FloatTensor(_).view(1,-1,1,1)
-            mask = mask.repeat(batch_size,1,H,W).to(device)/255-0.5
+            mask = mask.repeat(1,1,H,W).to(device)/255-0.5
             self.masks.append(mask)
 
         self.opt = torch.optim.Adam(self.parameters(), 2e-4, weight_decay=1e-3)
@@ -65,11 +65,12 @@ class Derenderer(nn.Module):
         """
         derendered = []
         exists = []
-        for m in self.masks:
+        for m_ in self.masks:
+            m     = m_.repeat(o.shape[0], 1,1,1)
             mask  = ((o - m).abs().sum(1, keepdim=True) < 1e-1).float() # [:, 1, H, W]
             x     = torch.cat((o, mask*o,mask*d), 1)
             dr    = self.derenderer(x).unsqueeze(1)*2                   # [:, 4, dim_obj]
-            exist = (mask.view(batch_size, -1).sum(1, keepdim=True) > 0).float()
+            exist = (mask.view(o.shape[0], -1).sum(1, keepdim=True) > 0).float()
             derendered.append(dr)
             exists.append(exist)
         return torch.cat(derendered, 1), torch.cat(exists, -1)
