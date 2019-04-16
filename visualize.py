@@ -74,3 +74,13 @@ def plot_training(summary):
     plt.title('training curve')
     plt.savefig(summary['save_path'])
     plt.close()
+
+def plot_training_f(losses, title, path):
+    plt.figure()
+    plt.plot(np.arange(len(losses)), losses, label='train loss', linestyle='-')
+    plt.legend(loc='upper right')
+    plt.grid()
+    plt.title(title)
+    plt.savefig(path)
+    plt.close()
+
