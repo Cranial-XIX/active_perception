@@ -43,8 +43,8 @@ class DPF(nn.Module):
             nn.Linear(dim_hidden, 1)
         )
         self.alpha = 0.8 
-        #self.opt_d = torch.optim.SGD(self.discriminator.parameters())
-        #self.opt_g = torch.optim.SGD(self.generator.parameters())
+        self.opt_d = torch.optim.Adam(self.discriminator.parameters(), lr=3e-4)
+        self.opt_g = torch.optim.Adam(self.generator.parameters(), lr=3e-4)
         self.opt_f = torch.optim.Adam(
                 list(self.discriminator.parameters()) \
                         +list(self.generator.parameters()), 
@@ -145,10 +145,14 @@ class DPF(nn.Module):
         w: [B, K]
         s: [B, n_obj, dim_obj]
         """
+        '''
         w = w - torch.logsumexp(w.detach(), -1, keepdim=True) # normalize w
         x = (p - s.unsqueeze(1)).pow(2).sum(-1).sum(-1) * 0.1 / 2
         # w: [B, K], x: [B, K]
         loss = -torch.logsumexp(w-x, 1).mean()
+        '''
+        w = F.softmax(w, -1).unsqueeze(2).unsqueeze(3)
+        loss = F.mse_loss((p*w).sum(1), s)
         return loss
 
     def update_parameters(self):
@@ -158,6 +162,7 @@ class DPF(nn.Module):
         n_steps = S.shape[1]
 
         ### end-to-end loss
+        '''
         self.opt_f.zero_grad()
         e2e_loss = 0
         p, w = None, None
@@ -181,8 +186,61 @@ class DPF(nn.Module):
         e2e_loss /= n_steps
         e2e_loss.backward()
         self.opt_f.step()
-        
-        return e2e_loss.item()
+        '''
+
+        ### adversarial loss
+        p, w = None, None
+        B = S.shape[0]
+        samples, targets, X = [], [], []
+        self.opt_g.zero_grad()
+        self.discriminator.eval()
+        g_loss = 0
+        for _ in range(n_steps):
+            n_new = int(K* (0.7**_))
+
+            if _ == 0:
+                p, w, p_n, x = self.forward(
+                        O[:,_,:,:,:], 
+                        D[:,_,:,:,:], 
+                        n_new=n_new)
+            else:
+                p, w, p_n, x = self.forward(
+                        O[:,_,:,:,:], 
+                        D[:,_,:,:,:], 
+                        A[:,_-1,:], 
+                        p, 
+                        w, 
+                        n_new)
+                samples.append(
+                        torch.cat(
+                            (S[:,_,:,:], p[:,np.random.randint(K),:,:].detach())
+                        ).view(-1, dim_state)) # [2B, dim_state]
+                target  = torch.zeros(B*2, 1).to(device)
+                target[:B,:] = 1
+                targets.append(target)
+                X.append(x.detach())
+
+                scores = self.discriminator(
+                        torch.cat((
+                            p_n.view(-1, K, dim_state), 
+                            x.unsqueeze(1).repeat(1,K,1)
+                        ), -1))
+                target = torch.ones(B,K,1).to(device)
+                g_loss += F.binary_cross_entropy_with_logits(scores, target) 
+    
+        (g_loss/n_steps).backward()
+        self.opt_g.step()
+
+        self.discriminator.train()
+        d_loss = 0
+        self.opt_d.zero_grad()
+        for (sample, target, x) in zip(samples, targets, X):
+            scores  = self.discriminator(torch.cat((sample, x.repeat(2,1)), -1))
+            d_loss += F.binary_cross_entropy_with_logits(scores, target)
+        (d_loss/n_steps).backward()
+        self.opt_d.step()
+
+        return g_loss.item()/n_steps, d_loss.item()/n_steps 
 
 def train_dpf():
     env = gym.make('ActivePerception-v0')
@@ -196,7 +254,7 @@ def train_dpf():
     frame_idx  = 0
     best_loss  = np.inf
     pbar       = tqdm(total=max_frames)
-    losses = []
+    losses = []; g_losses, d_losses = [], []
     while frame_idx < max_frames:
         pbar.update(1)
 
@@ -227,14 +285,17 @@ def train_dpf():
             dpf.rb.push(S, A, O, D)
 
         if len(dpf.rb) > batch_size:
-            loss = dpf.update_parameters()
+            g, d = dpf.update_parameters()
+            g_losses.append(g)
+            d_losses.append(d)
+            loss = g+d
             losses.append(loss)
             if loss < best_loss:
-                tqdm.write("[INFO] best loss %10.4f" % loss)
-                best_loss = loss
+                tqdm.write("[INFO] best loss %10.4f (g: %10.4f, d:%10.4f)" % (loss,g,d))
+                best_loss = loss 
                 dpf.save_model(save_path)
             if frame_idx % 10 == 0:
-                plot_training_f(losses, 'dpf', 'ckpt/dpf_train_curve.png')
+                plot_training_f(g_losses, d_losses, 'dpf', 'ckpt/dpf_train_curve.png')
     pbar.close()
 
 if __name__ == "__main__":
