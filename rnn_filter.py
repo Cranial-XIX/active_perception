@@ -148,6 +148,7 @@ def train_filter():
     frame_idx  = 0
     best_loss  = np.inf
     pbar       = tqdm(total=max_frames)
+    stats      = {'losses': []} 
     while frame_idx < max_frames:
         pbar.update(1)
 
@@ -160,9 +161,11 @@ def train_filter():
             d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
             S.append(s); O.append(o); D.append(d)
 
-            for step in range(1, 8):
+            steps = np.random.choice(7,7,False)+1
+            for step in steps:
                 frame_idx += 1
                 th  = np.pi/4*step
+                #th  = np.pi/4 * np.random.randint(1, 8)
                 obs = env.step(th)
 
                 s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
@@ -179,10 +182,13 @@ def train_filter():
 
         if len(rnn.rb) > batch_size:
             loss = rnn.update_parameters()
+            stats['losses'].append(loss)
             if loss < best_loss:
                 tqdm.write("[INFO] best loss %10.4f" % loss)
                 best_loss = loss
                 rnn.save_model(save_path)
+            if frame_idx % 10 == 0:
+                plot_training_f(stats, 'rnn', 'ckpt/rnn_filter_training_curve.png')
     pbar.close()
 
 def test_baseline(n_actions=1):
@@ -219,7 +225,7 @@ def test_rnn(path, n_actions=1):
     env = gym.make('ActivePerception-v0')
     env.sid = 9900 # test
     rnn = RNNFilter().to(device)
-    #rnn.load_model(path)
+    rnn.load_model(path)
 
     mse = 0
     for episode in tqdm(range(100)):

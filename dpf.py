@@ -254,7 +254,10 @@ def train_dpf():
     frame_idx  = 0
     best_loss  = np.inf
     pbar       = tqdm(total=max_frames)
-    losses = []; g_losses, d_losses = [], []
+    stats      = {
+            'g_loss':[],
+            'd_loss':[],
+            }
     while frame_idx < max_frames:
         pbar.update(1)
 
@@ -286,16 +289,15 @@ def train_dpf():
 
         if len(dpf.rb) > batch_size:
             g, d = dpf.update_parameters()
-            g_losses.append(g)
-            d_losses.append(d)
+            stats['g_loss'].append(g)
+            stats['d_loss'].append(d)
             loss = g+d
-            losses.append(loss)
             if loss < best_loss:
                 tqdm.write("[INFO] best loss %10.4f (g: %10.4f, d:%10.4f)" % (loss,g,d))
                 best_loss = loss 
                 dpf.save_model(save_path)
             if frame_idx % 10 == 0:
-                plot_training_f(g_losses, d_losses, 'dpf', 'ckpt/dpf_train_curve.png')
+                plot_training_f(stats, 'dpf', 'ckpt/dpf_train_curve.png')
     pbar.close()
 
 if __name__ == "__main__":

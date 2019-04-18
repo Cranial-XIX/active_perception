@@ -75,12 +75,11 @@ def plot_training(summary):
     plt.savefig(summary['save_path'])
     plt.close()
 
-def plot_training_f(D, G, title, path):
+def plot_training_f(stats, title, path):
     plt.figure()
-    idx = np.arange(len(D))
-    #plt.plot(idx, losses, label='train loss', linestyle='-')
-    plt.plot(idx, D, label='d loss', linestyle='-')
-    plt.plot(idx, G, label='g loss', linestyle='-')
+    for k, v in stats.items():
+        idx = np.arange(len(v))
+        plt.plot(idx, v, label=k, linestyle='-')
     plt.legend(loc='upper right')
     plt.grid()
     plt.title(title)
