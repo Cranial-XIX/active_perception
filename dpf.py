@@ -83,7 +83,7 @@ class DPF(nn.Module):
                 p_t, w_t = self.resample(p_t, w_t, K-n_new)
                 w_t = torch.cat((w_t, torch.Tensor(B, n_new).fill_(-np.log(K)).to(device)), 1)
                 p_t = torch.cat((p_t, p_n[:,:n_new]), 1)
-            elif n_new < 0: # just resample
+            elif n_new <= 0: # just resample
                 p_t, w_t = self.resample(p_t, w_t, K)
             w_t -= w_t.max(1, keepdim=True)[0]
 
@@ -193,7 +193,7 @@ class DPF(nn.Module):
 
         e2e_loss /= n_steps
         d_loss /= n_steps
-        (e2e_loss+d_loss*1e-1).backward()
+        (e2e_loss+d_loss*1e-2).backward()
         self.opt_f.step()
         '''
 
@@ -302,10 +302,9 @@ def train_dpf():
             e, d = dpf.update_parameters()
             stats['e2e_loss'].append(e)
             stats['d_loss'].append(d)
-            loss = e+d
-            if loss < best_loss:
-                tqdm.write("[INFO] best loss %10.4f (g: %10.4f, d:%10.4f)" % (loss,e,d))
-                best_loss = loss 
+            if e < best_loss:
+                tqdm.write("[INFO] best e: %10.4f, d:%10.4f" % (e,d))
+                best_loss = e
                 dpf.save_model(save_path)
             if frame_idx % 10 == 0:
                 plot_training_f(stats, 'dpf', 'ckpt/dpf_train_curve.png')
