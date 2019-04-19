@@ -25,7 +25,7 @@ class DPF(nn.Module):
     def __init__(self):
         super(DPF, self).__init__()
 
-        self.rb = ReplayBuffer(9900)
+        self.rb = ReplayBuffer(10000)
         self.derenderer = Derenderer()
         self.derenderer.load("ckpt/dr.pt")
 
@@ -168,7 +168,7 @@ class DPF(nn.Module):
         d_loss = 0
         p, w = None, None
         for _ in range(n_steps):
-            n_new = int(K* (0.7**_))
+            n_new = int(K* (0.5**_))
             if _ == 0:
                 p, w, p_n, x = self.forward(
                         O[:,_,:,:,:], 
@@ -330,7 +330,7 @@ def test_dpf(path, n_actions=1):
             obs   = env.step(th)
             o     = trans_rgb(obs['o']).to(device)
             d     = trans_d(obs['d']).to(device)
-            n_new = int(K*(0.7**(step+1)))
+            n_new = int(K*(0.5**(step+1)))
 
             th    = torch.FloatTensor([th]).view(1, -1).to(device)
             p,w,p_n,x = dpf(o, d, th, p, w, n_new)

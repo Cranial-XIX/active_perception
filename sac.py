@@ -45,7 +45,7 @@ class ValueNetwork(nn.Module):
         self.linear3.bias.data.uniform_(-init_w, init_w)
 
     def forward(self, state):
-        x = torch.cat((state), -1)
+        x = state
         x = F.relu(self.linear1(x))
         x = F.relu(self.linear2(x))
         x = self.linear3(x)
@@ -117,6 +117,7 @@ class PolicyNetwork(nn.Module):
         return action, log_prob, z, mean, log_std
 
     def get_action(self, state):
+        state = torch.FloatTensor(state).to(self.device)
         mean, log_std = self.forward(state)
         std = log_std.exp()
 
