@@ -150,14 +150,15 @@ class DPF(nn.Module):
         w: [B, K]
         s: [B, n_obj, dim_obj]
         """
-        '''
-        w = w - torch.logsumexp(w.detach(), -1, keepdim=True) # normalize w
-        x = (p - s.unsqueeze(1)).pow(2).sum(-1).sum(-1) * 0.1 / 2
+        w = F.softmax(w, -1)
+        x = torch.exp(-(p - s.unsqueeze(1)).pow(2).sum(-1).sum(-1) * 10 / 2)
+        x = (w * x).sum(1)
         # w: [B, K], x: [B, K]
-        loss = -torch.logsumexp(w-x, 1).mean()
+        loss = -torch.log(1e-12+x).mean() 
         '''
         w = F.softmax(w, -1).unsqueeze(2).unsqueeze(3)
         loss = F.mse_loss((p*w).sum(1), s)
+        '''
         return loss
 
     def update_parameters(self, adversarial=True):
@@ -208,14 +209,14 @@ class DPF(nn.Module):
                 ### generator loss
                 scores2 = self.d_copy(
                         torch.cat((
-                            p_n[:,np.random.randint(K),:,:],
+                            p_n[:,np.random.randint(K),:,:].view(-1, dim_state),
                             x.detach()), -1))
                 g_loss += F.binary_cross_entropy_with_logits(scores2, ones)
 
         e2e_loss /= n_steps
         d_loss   /= n_steps
         g_loss   /= n_steps
-        (e2e_loss+d_loss*1e-2+g_loss*1e-2).backward()
+        (e2e_loss+d_loss+g_loss).backward()
         self.opt_f.step()
         '''
 
@@ -328,7 +329,7 @@ def train_dpf():
             stats['d_loss'].append(d)
             stats['g_loss'].append(g)
             if e < best_loss:
-                tqdm.write("[INFO] e: %10.4f | d: %10.4f | g: %10.4f" % (e,d,g))
+                tqdm.write("[INFO] e: %8.4f | d: %8.4f | g: %8.4f" % (e,d,g))
                 best_loss = e
                 dpf.save_model(save_path)
             if frame_idx % 10 == 0:
@@ -342,6 +343,7 @@ def test_dpf(path, n_actions=1):
     dpf.load_model(path)
 
     mse = 0
+    mmse = 0
     for episode in tqdm(range(100)):
         scene_data, obs = env.reset(False)
 
@@ -359,7 +361,10 @@ def test_dpf(path, n_actions=1):
 
             th    = torch.FloatTensor([th]).view(1, -1).to(device)
             p,w,p_n,x = dpf(o, d, th, p, w, n_new)
+        i = w.view(-1).argmax()
+        mmse += F.mse_loss(p[0,i], s).item()
         mse += dpf.e2e_loss_fn(p,w,s).item()
+    print(mmse)
     return mse
 
 if __name__ == "__main__":
