@@ -246,9 +246,79 @@ def test_rnn(path, n_actions=1):
         mse += F.mse_loss(s_, s).item()#(s - s_).pow(2).sum().sqrt().item()
     return mse
 
+def train_rnn_sac(path, threshold=0.02):
+    env = gym.make('ActivePerception-v0')
+    rnn = RNNFilter().to(device)
+    rnn.load_model(path)
+    sac = SAC()
+
+    # set up the experiment folder
+    experiment_id = "rsac_" + get_datetime()
+    save_path = CKPT+experiment_id+".pt"
+
+    max_frames = 100000
+    frame_idx  = 0
+    best_loss  = np.inf
+    pbar       = tqdm(total=max_frames)
+    stats      = {'losses': []} 
+    best_reward = np.inf 
+    avg_reward = 0
+    episode    = 0
+    while frame_idx < max_frames:
+        pbar.update(1)
+
+        episode += 1
+        env.sid = env.sid % 9900
+        scene_data, obs = env.reset(False)
+
+        S, A, R, D = [], [], [], []
+        s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
+        o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
+        d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
+
+        s_, h = rnn(o, d)
+        prev_mse = F.mse_loss(s_, s).item()
+        h_numpy = h.view(-1).detach().cpu().numpy()
+        S.append(h_numpy)
+        for _ in range(8):
+            frame_idx += 1
+            th    = sac.policy_net.get_action(h_numpy.reshape(1,-1))
+            obs   = env.step(th)
+            o     = trans_rgb(obs['o']).to(device)
+            d     = trans_d(obs['d']).to(device)
+            th    = torch.FloatTensor([th]).view(1, -1).to(device)
+            s_, h = rnn(o, d, th, h)
+
+            mse      = F.mse_loss(s_, s).item()
+            r        = (mse - prev_mse)*100 - 1
+            prev_mse = mse
+            d        = (mse < threshold)
+            h_numpy  = h.view(-1).detach().cpu().numpy()
+
+            S.append(h_numpy)
+            A.append(th.reshape(-1))
+            R.append(r)
+            D.append(d)
+
+        S, NS = S[:-1], S[1:]
+        for s, a, r, ns, d in zip(S, A, R, NS, D):
+            sac.replay_buffer.push(s, a, r, ns, d)
+            if len(sac.replay_buffer) > batch_size:
+                sac.soft_q_update(batch_size)
+
+        avg_reward += np.array(r).sum()
+        if episode % 10 == 0:
+            tqdm.write("[INFO] avg reward: %10.4f" % avg_reward/10)
+            if avg_reward / 10 > best_reward:
+                best_reward = avg_reward
+                sac.save_model(save_path)
+            avg_reward = 0
+
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         train_filter()
+    elif sys.argv[1] == 's':
+        train_rnn_sac(sys.argv[2])
     elif sys.argv[1] == 'r':
         print("[INFO] rnn mse: ", test_rnn(sys.argv[2], int(sys.argv[3])))
     elif sys.argv[1] == 'b':

@@ -80,7 +80,7 @@ class PolicyNetwork(nn.Module):
 
         super(PolicyNetwork, self).__init__()
 
-        self.device = "cuda:0" if torch.cuda.is_available() else "cpu:0"
+        self.device = "cuda:3" if torch.cuda.is_available() else "cpu:0"
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
 
@@ -117,7 +117,6 @@ class PolicyNetwork(nn.Module):
         return action, log_prob, z, mean, log_std
 
     def get_action(self, state):
-        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         mean, log_std = self.forward(state)
         std = log_std.exp()
 
@@ -126,7 +125,7 @@ class PolicyNetwork(nn.Module):
         action = torch.tanh(z)
 
         action = action.detach().cpu().numpy()
-        return action[0]
+        return action[0]*np.pi+np.pi
 
 class NormalizedActions(gym.ActionWrapper):
     def _action(self, action):
@@ -150,9 +149,9 @@ class NormalizedActions(gym.ActionWrapper):
 class SAC:
     def __init__(self):
         dim_action = 1
-        dim_state  = 256
-        dim_hidden = 256
-        self.device = "cuda:0" if torch.cuda.is_available() else "cpu:0"
+        dim_state  = 128 
+        dim_hidden = 128 
+        self.device = "cuda:3" if torch.cuda.is_available() else "cpu:0"
 
         self.value_net = ValueNetwork(dim_state, dim_hidden).to(self.device)
         self.target_value_net = ValueNetwork(dim_state, dim_hidden).to(self.device)
