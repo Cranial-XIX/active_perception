@@ -165,7 +165,6 @@ def train_filter():
             for step in steps:
                 frame_idx += 1
                 th  = np.pi/4*step
-                #th  = np.pi/4 * np.random.randint(1, 8)
                 obs = env.step(th)
 
                 s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
@@ -208,7 +207,7 @@ def test_baseline(n_actions=1):
         s_   = x                             # [1, n_obj, dim_obj]
         e_   = e                             # [1, n_obj, 1]
         for step in range(n_actions):        # n_actions allowed
-            th   = np.pi/4 * np.random.randint(1, 8)
+            th   = np.random.rand()*2*np.pi
             obs  = env.step(th)
             o = trans_rgb(obs['o']).to(device)
             d = trans_d(obs['d']).to(device)
@@ -237,7 +236,7 @@ def test_rnn(path, n_actions=1):
 
         s_, h = rnn(o, d)
         for step in range(n_actions):        # n_actions allowed
-            th   = np.pi/4 * np.random.randint(1, 8)
+            th   = np.random.rand()*2*np.pi 
             obs  = env.step(th)
             o = trans_rgb(obs['o']).to(device)
             d = trans_d(obs['d']).to(device)
@@ -251,8 +250,8 @@ if __name__ == "__main__":
     if len(sys.argv) == 1:
         train_filter()
     elif sys.argv[1] == 'r':
-        print("[INFO] rnn mse: ", test_rnn(sys.argv[2]))
+        print("[INFO] rnn mse: ", test_rnn(sys.argv[2], int(sys.argv[3])))
     elif sys.argv[1] == 'b':
-        print("[INFO] baseline mse: ",test_baseline())
+        print("[INFO] baseline mse: ",test_baseline(int(sys.argv[2])))
     else:
         print("[ERROR] Unknown flag")

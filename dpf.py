@@ -27,7 +27,7 @@ class DPF(nn.Module):
 
         self.rb = ReplayBuffer(9900)
         self.derenderer = Derenderer()
-        #self.derenderer.load("ckpt/dr.pt")
+        self.derenderer.load("ckpt/dr.pt")
 
         ### the particle proposer
         self.generator = nn.Sequential(
@@ -160,11 +160,12 @@ class DPF(nn.Module):
         S, A, O, D = map(self.to_device, [S, A, O, D])
 
         n_steps = S.shape[1]
+        B       = S.shape[0]
 
         ### end-to-end loss
-        '''
         self.opt_f.zero_grad()
         e2e_loss = 0
+        d_loss = 0
         p, w = None, None
         for _ in range(n_steps):
             n_new = int(K* (0.7**_))
@@ -182,9 +183,17 @@ class DPF(nn.Module):
                         w, 
                         n_new)
             e2e_loss += self.e2e_loss_fn(p, w, S[:,_,:,:])
+            sample = torch.cat(
+                (S[:,_,:,:], p_n[:,np.random.randint(K),:,:].detach())
+            ).view(-1, dim_state).detach() # [2B, dim_state]
+            target  = torch.zeros(B*2, 1).to(device)
+            target[:B,:] = 1
+            scores  = self.discriminator(torch.cat((sample, x.detach().repeat(2,1)), -1))
+            d_loss += F.binary_cross_entropy_with_logits(scores, target)
 
         e2e_loss /= n_steps
-        e2e_loss.backward()
+        d_loss /= n_steps
+        (e2e_loss+d_loss*1e-1).backward()
         self.opt_f.step()
         '''
 
@@ -241,6 +250,8 @@ class DPF(nn.Module):
         self.opt_d.step()
 
         return g_loss.item()/n_steps, d_loss.item()/n_steps 
+        '''
+        return e2e_loss.item(), d_loss.item()
 
 def train_dpf():
     env = gym.make('ActivePerception-v0')
@@ -255,7 +266,7 @@ def train_dpf():
     best_loss  = np.inf
     pbar       = tqdm(total=max_frames)
     stats      = {
-            'g_loss':[],
+            'e2e_loss':[],
             'd_loss':[],
             }
     while frame_idx < max_frames:
@@ -288,17 +299,47 @@ def train_dpf():
             dpf.rb.push(S, A, O, D)
 
         if len(dpf.rb) > batch_size:
-            g, d = dpf.update_parameters()
-            stats['g_loss'].append(g)
+            e, d = dpf.update_parameters()
+            stats['e2e_loss'].append(e)
             stats['d_loss'].append(d)
-            loss = g+d
+            loss = e+d
             if loss < best_loss:
-                tqdm.write("[INFO] best loss %10.4f (g: %10.4f, d:%10.4f)" % (loss,g,d))
+                tqdm.write("[INFO] best loss %10.4f (g: %10.4f, d:%10.4f)" % (loss,e,d))
                 best_loss = loss 
                 dpf.save_model(save_path)
             if frame_idx % 10 == 0:
                 plot_training_f(stats, 'dpf', 'ckpt/dpf_train_curve.png')
     pbar.close()
 
+def test_dpf(path, n_actions=1):
+    env = gym.make('ActivePerception-v0')
+    env.sid = 9900 # test
+    dpf = DPF().to(device)
+    dpf.load_model(path)
+
+    mse = 0
+    for episode in tqdm(range(100)):
+        scene_data, obs = env.reset(False)
+
+        s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
+        o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
+        d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
+
+        p, w, p_n, x = dpf(o, d, n_new=K)
+        for step in range(n_actions):        # n_actions allowed
+            th    = np.random.rand()*2*np.pi 
+            obs   = env.step(th)
+            o     = trans_rgb(obs['o']).to(device)
+            d     = trans_d(obs['d']).to(device)
+            n_new = int(K*(0.7**(step+1)))
+
+            th    = torch.FloatTensor([th]).view(1, -1).to(device)
+            p,w,p_n,x = dpf(o, d, th, p, w, n_new)
+        mse += dpf.e2e_loss_fn(p,w,s).item()
+    return mse
+
 if __name__ == "__main__":
-    train_dpf()
+    if len(sys.argv) == 1:
+        train_dpf()
+    else:
+        print("[INFO] dpf mse: ", test_dpf(sys.argv[1]))
