@@ -42,9 +42,14 @@ class DPF(nn.Module):
             nn.ReLU(),
             nn.Linear(dim_hidden, 1)
         )
+        self.d_copy = nn.Sequential(
+            nn.Linear(dim_state+16, dim_hidden),
+            nn.ReLU(),
+            nn.Linear(dim_hidden, 1)
+        )
+        self.d_copy.requires_grad = False
+
         self.alpha = 0.8 
-        self.opt_d = torch.optim.Adam(self.discriminator.parameters(), lr=3e-4)
-        self.opt_g = torch.optim.Adam(self.generator.parameters(), lr=3e-4)
         self.opt_f = torch.optim.Adam(
                 list(self.discriminator.parameters()) \
                         +list(self.generator.parameters()), 
@@ -155,18 +160,23 @@ class DPF(nn.Module):
         loss = F.mse_loss((p*w).sum(1), s)
         return loss
 
-    def update_parameters(self):
+    def update_parameters(self, adversarial=True):
         S, A, O, D = self.rb.sample(batch_size)
         S, A, O, D = map(self.to_device, [S, A, O, D])
 
         n_steps = S.shape[1]
         B       = S.shape[0]
 
-        ### end-to-end loss
+        ### end-to-end loss and discriminator/generator loss
         self.opt_f.zero_grad()
         e2e_loss = 0
-        d_loss = 0
+        d_loss   = 0
+        g_loss   = 0
         p, w = None, None
+
+        if adversarial:
+            self.d_copy.load_state_dict(self.discriminator.state_dict())
+
         for _ in range(n_steps):
             n_new = int(K* (0.5**_))
             if _ == 0:
@@ -183,17 +193,29 @@ class DPF(nn.Module):
                         w, 
                         n_new)
             e2e_loss += self.e2e_loss_fn(p, w, S[:,_,:,:])
-            sample = torch.cat(
-                (S[:,_,:,:], p_n[:,np.random.randint(K),:,:].detach())
-            ).view(-1, dim_state).detach() # [2B, dim_state]
-            target  = torch.zeros(B*2, 1).to(device)
-            target[:B,:] = 1
-            scores  = self.discriminator(torch.cat((sample, x.detach().repeat(2,1)), -1))
-            d_loss += F.binary_cross_entropy_with_logits(scores, target)
+
+            if adversarial:
+                ### discriminator loss
+                sample = torch.cat(
+                    (S[:,_,:,:], p_n[:,np.random.randint(K),:,:].detach())
+                ).view(-1, dim_state).detach() # [2B, dim_state]
+                ones    = torch.ones(B, 1).to(device)
+                zeros   = torch.zeros(B, 1).to(device)
+                target  = torch.cat((ones, zeros), 0)
+                scores  = self.discriminator(torch.cat((sample, x.detach().repeat(2,1)), -1))
+                d_loss += F.binary_cross_entropy_with_logits(scores, target)
+
+                ### generator loss
+                scores2 = self.d_copy(
+                        torch.cat((
+                            p_n[:,np.random.randint(K),:,:],
+                            x.detach()), -1))
+                g_loss += F.binary_cross_entropy_with_logits(scores2, ones)
 
         e2e_loss /= n_steps
-        d_loss /= n_steps
-        (e2e_loss+d_loss*1e-2).backward()
+        d_loss   /= n_steps
+        g_loss   /= n_steps
+        (e2e_loss+d_loss*1e-2+g_loss*1e-2).backward()
         self.opt_f.step()
         '''
 
@@ -251,7 +273,8 @@ class DPF(nn.Module):
 
         return g_loss.item()/n_steps, d_loss.item()/n_steps 
         '''
-        return e2e_loss.item(), d_loss.item()
+
+        return e2e_loss.item(), d_loss.item(), g_loss.item()
 
 def train_dpf():
     env = gym.make('ActivePerception-v0')
@@ -267,7 +290,8 @@ def train_dpf():
     pbar       = tqdm(total=max_frames)
     stats      = {
             'e2e_loss':[],
-            'd_loss':[],
+            'd_loss'  :[],
+            'g_loss'  :[]
             }
     while frame_idx < max_frames:
         pbar.update(1)
@@ -299,11 +323,12 @@ def train_dpf():
             dpf.rb.push(S, A, O, D)
 
         if len(dpf.rb) > batch_size:
-            e, d = dpf.update_parameters()
+            e, d, g = dpf.update_parameters()
             stats['e2e_loss'].append(e)
             stats['d_loss'].append(d)
+            stats['g_loss'].append(g)
             if e < best_loss:
-                tqdm.write("[INFO] best e: %10.4f, d:%10.4f" % (e,d))
+                tqdm.write("[INFO] e: %10.4f | d: %10.4f | g: %10.4f" % (e,d,g))
                 best_loss = e
                 dpf.save_model(save_path)
             if frame_idx % 10 == 0:
