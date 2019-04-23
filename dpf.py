@@ -55,7 +55,7 @@ class DPF(nn.Module):
                         +list(self.generator.parameters()), 
                 lr=3e-4)
 
-    def forward(self, o_t, d_t, a_tm1=None, p_tm1=None, w_tm1=None, n_new=0):
+    def forward(self, o_t, d_t, a_tm1=None, p_tm1=None, w_tm1=None, n_new=0, resample=False):
         """
         params
             o_t  : [:, C, H, W]
@@ -84,12 +84,14 @@ class DPF(nn.Module):
         else:
             w_t = w_tm1 + self.update_belief(p_tm1, x)
             p_t = p_tm1
-            if n_new > 0:
-                p_t, w_t = self.resample(p_t, w_t, K-n_new)
-                w_t = torch.cat((w_t, torch.Tensor(B, n_new).fill_(-np.log(K)).to(device)), 1)
-                p_t = torch.cat((p_t, p_n[:,:n_new]), 1)
-            elif n_new <= 0: # just resample
-                p_t, w_t = self.resample(p_t, w_t, K)
+            if resample:
+                if n_new > 0:
+                    p_t, w_t = self.resample(p_t, w_t, K-n_new)
+                    w_t = torch.cat((w_t, torch.Tensor(B, n_new).fill_(-np.log(K)).to(device)), 1)
+                    p_t = torch.cat((p_t, p_n[:,:n_new]), 1)
+                else: # just resample
+                    p_t, w_t = self.resample(p_t, w_t, K)
+
             w_t -= w_t.max(1, keepdim=True)[0]
 
         return p_t, w_t, p_n, x
@@ -151,7 +153,7 @@ class DPF(nn.Module):
         s: [B, n_obj, dim_obj]
         """
         w = F.softmax(w, -1)
-        x = torch.exp(-(p - s.unsqueeze(1)).pow(2).sum(-1).sum(-1) * 10 / 2)
+        x = torch.exp(-(p - s.unsqueeze(1)).pow(2).sum(-1).sum(-1)*2)
         x = (w * x).sum(1)
         # w: [B, K], x: [B, K]
         loss = -torch.log(1e-12+x).mean() 
@@ -216,7 +218,7 @@ class DPF(nn.Module):
         e2e_loss /= n_steps
         d_loss   /= n_steps
         g_loss   /= n_steps
-        (e2e_loss+d_loss+g_loss).backward()
+        (e2e_loss+1.2*d_loss+1.2*g_loss).backward()
         self.opt_f.step()
         '''
 
