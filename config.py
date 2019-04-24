@@ -29,7 +29,7 @@ CKPT = "ckpt/"
 dim_obj   = 3
 n_obj     = 4
 dim_state = dim_obj * n_obj
-K         = 30 # num particles
+K         = 50 # num particles
 batch_size= 50
 H = W = 64
 dropout   = 0.2
