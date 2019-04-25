@@ -29,10 +29,14 @@ class DPF(nn.Module):
         self.derenderer = Derenderer()
         self.derenderer.load("ckpt/dr.pt")
 
+        self.h0  = nn.Parameter(torch.randn(b_num_layers, 1, dim_hidden))
+        self.rnn = nn.GRU(16, dim_hidden, b_num_layers)
+
         ### the particle proposer
         self.generator = nn.Sequential(
-            nn.Linear(16+4, dim_hidden),
+            nn.Linear(dim_hidden, dim_hidden),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(dim_hidden, dim_state)
         )
 
@@ -55,7 +59,10 @@ class DPF(nn.Module):
                         +list(self.generator.parameters()), 
                 lr=3e-4)
 
-    def forward(self, o_t, d_t, a_tm1=None, p_tm1=None, w_tm1=None, n_new=0, resample=False):
+    def forward(self,
+            o_t, d_t, a_tm1=None,
+            p_tm1=None, w_tm1=None, h_tm1=None,
+            n_new=0, resample=False):
         """
         params
             o_t  : [:, C, H, W]
@@ -72,10 +79,12 @@ class DPF(nn.Module):
         B    = o_t.shape[0]
         if p_tm1 is None:
             a_tm1 = torch.zeros(B, 1).to(device)
+            h_tm1 = self.h0.repeat(1, B, 1)
 
         d, e = self.derenderer(o_t, d_t)
         x    = rotate_state2(d, a_tm1)
         x    = torch.cat((x, e.unsqueeze(-1)), -1).view(B, 16)
+        x, h = self.rnn(x, h_tm1)
         p_n  = self.generate(x) #self.generator(x).view(B, K, n_obj, dim_obj)
 
         if p_tm1 is None:
@@ -92,18 +101,22 @@ class DPF(nn.Module):
                 else: # just resample
                     p_t, w_t = self.resample(p_t, w_t, K)
 
-        return p_t, w_t, p_n, x
+        return p_t, w_t, p_n, x, h
 
     def generate(self, x):
         """
-        x: [:, 16]
+        x: [:, dim_hidden]
         """
+        x = x.unsqueeze(1).repeat(1,K,1)
+        x = self.generator(x).view(-1, K, n_obj, dim_obj)
+        '''
         p = []
         for _ in range(K):
-            noise = torch.randn(x.shape[0], 4).to(device)
+            noise = torch.randn(x.shape[0], 4).to(device)*1e-2
             x_    = torch.cat((x, noise), -1)
-            p.append(self.generator(x_).unsqueeze(1))
-        return torch.cat(p, 1).view(-1, K, n_obj, dim_obj)
+            p.append(self.generator(x_).view(-1, 1, n_obj, dim_obj))
+        '''
+        return x
 
     def update_belief(self, p, x):
         """
@@ -185,7 +198,8 @@ class DPF(nn.Module):
         e2e_loss = 0
         d_loss   = 0
         g_loss   = 0
-        p, w = None, None
+        p_loss   = 0
+        p, w, h  = None, None, None
 
         if adversarial:
             self.d_copy.load_state_dict(self.discriminator.state_dict())
@@ -193,19 +207,21 @@ class DPF(nn.Module):
         for _ in range(n_steps):
             n_new = int(K* (0.5**_))
             if _ == 0:
-                p, w, p_n, x = self.forward(
+                p, w, p_n, x, h = self.forward(
                         O[:,_,:,:,:], 
                         D[:,_,:,:,:], 
                         n_new=n_new)
             else:
-                p, w, p_n, x = self.forward(
+                p, w, p_n, x, h = self.forward(
                         O[:,_,:,:,:], 
                         D[:,_,:,:,:], 
                         A[:,_-1,:], 
                         p, 
-                        w, 
+                        w,
+                        h,
                         n_new)
             e2e_loss += self.e2e_loss_fn(p, w, S[:,_,:,:])
+            p_loss   += F.mse_loss(p_n.mean(1), S[:,_,:,:])
 
             if adversarial:
                 ### discriminator loss
@@ -228,10 +244,11 @@ class DPF(nn.Module):
         e2e_loss /= n_steps
         d_loss   /= n_steps
         g_loss   /= n_steps
-        (e2e_loss+d_loss*0.8+g_loss*0.8).backward()
+        p_loss   /= n_steps
+        (e2e_loss+d_loss*1.2+g_loss*1.2+p_loss).backward()
         self.opt_f.step()
 
-        return e2e_loss.item(), d_loss.item(), g_loss.item()
+        return e2e_loss.item(), d_loss.item(), g_loss.item(), p_loss.item()
 
 def train_dpf():
     env = gym.make('ActivePerception-v0')
@@ -248,11 +265,14 @@ def train_dpf():
     stats      = {
             'e2e_loss':[],
             'd_loss'  :[],
-            'g_loss'  :[]
+            'g_loss'  :[],
+            'p_loss'  :[]
             }
+    episode = 0
     while frame_idx < max_frames:
         pbar.update(1)
 
+        episode += 1
         if frame_idx < 9900*8: # adding train set to buffer 
             S, A, O, D = [], [], [], []
             scene_data, obs = env.reset(False)
@@ -282,16 +302,21 @@ def train_dpf():
             dpf.rb.push(S, A, O, D)
 
         if len(dpf.rb) > batch_size:
-            e, d, g = dpf.update_parameters()
+            e, d, g, p = dpf.update_parameters()
             stats['e2e_loss'].append(e)
             stats['d_loss'].append(d)
             stats['g_loss'].append(g)
+            stats['p_loss'].append(p)
+            '''
             if e < best_loss:
-                tqdm.write("[INFO] e: %8.4f | d: %8.4f | g: %8.4f" % (e,d,g))
+                tqdm.write("[INFO] e: %8.4f | d: %8.4f | g: %8.4f | p: %8.4f" % (e,d,g,p))
                 best_loss = e
                 dpf.save_model(save_path)
-            if frame_idx % 10 == 0:
+            '''
+            if episode % 10 == 0:
+                tqdm.write("[INFO] i: %05d | e: %8.4f | d: %8.4f | g: %8.4f | p: %8.4f" % (episode,e,d,g,p))
                 plot_training_f(stats, 'dpf', 'ckpt/dpf_train_curve.png')
+                dpf.save_model(save_path)
     pbar.close()
 
 def test_dpf(path, n_actions=1):
@@ -312,7 +337,7 @@ def test_dpf(path, n_actions=1):
         #print("a", episode)
         #if episode == 1:
         #    print(s)
-        p, w, p_n, x = dpf(o, d, n_new=K)
+        p, w, p_n, x, h = dpf(o, d, n_new=K)
         #print("-"*5)
 
         if 0 and episode == 10:
@@ -329,13 +354,15 @@ def test_dpf(path, n_actions=1):
             o     = trans_rgb(obs['o']).to(device)
             d     = trans_d(obs['d']).to(device)
             n_new = int(K*(0.5**(step+1)))
-
             th    = torch.FloatTensor([th]).view(1, -1).to(device)
-            p,w,p_n,x = dpf(o, d, th, p, w, n_new)
-        i = w.view(-1).argmax()
+
+            p, w, p_n, x, h = dpf(o, d, th, p, w, h, n_new)
+
+        i     = w.view(-1).argmax()
         mmse += F.mse_loss(p[0,i], s).item()
-        w = F.softmax(w, 1).unsqueeze(2).unsqueeze(3)
+        w     = F.softmax(w, 1).unsqueeze(2).unsqueeze(3)
         mse  += F.mse_loss((w*p).sum(1), s).item()
+
     print(mmse)
     return mse
 
@@ -375,11 +402,12 @@ def train_dpf_sac(path, threshold=0.02):
         o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
         d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
 
-        p, w, p_n, x = dpf(o, d, n_new=K)
-        p_ = get_sorted_particles(p, w)
-        prev_mse = F.mse_loss(p_[:,-3:,:,:].mean(1), s).item()
-        h_numpy = p_[:,-3:,:,:].view(-1).detach().cpu().numpy()
+        p, w, p_n, x, h = dpf(o, d, n_new=K)
+        p_              = get_sorted_particles(p, w)
+        prev_mse        = F.mse_loss(p_[:,-3:,:,:].mean(1), s).item()
+        h_numpy         = p_[:,-3:,:,:].view(-1).detach().cpu().numpy()
         S.append(h_numpy)
+
         for _ in range(8):
             frame_idx += 1
             th    = sac.policy_net.get_action(h_numpy.reshape(1,-1))
@@ -388,11 +416,11 @@ def train_dpf_sac(path, threshold=0.02):
             d     = trans_d(obs['d']).to(device)
             th    = torch.FloatTensor([th]).view(1, -1).to(device)
             n_new = int(K*(0.5**(_+1)))
-            p,w,p_n,x = dpf(o, d, th, p, w, n_new)
 
-            p_ = get_sorted_particles(p, w)
+            p, w, p_n, x, h = dpf(o, d, th, p, w, h, n_new)
+
+            p_       = get_sorted_particles(p, w)
             mse      = F.mse_loss(p_[:,-3:,:,:].mean(1), s).item()
-
             prev_mse = mse
             d        = (mse < threshold)
             r        = 8 if d else -1
@@ -439,20 +467,21 @@ def test_dpf_sac(d_path, s_path, threshold=0.02):
         o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
         d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
 
-        p, w, p_n, x = dpf(o, d, n_new=K)
-        p_ = get_sorted_particles(p, w)
-        h_numpy = p_[:,-3:,:,:].view(-1).detach().cpu().numpy()        
+        p, w, p_n, x, h = dpf(o, d, n_new=K)
+        p_              = get_sorted_particles(p, w)
+        h_numpy         = p_[:,-3:,:,:].view(-1).detach().cpu().numpy()        
         for _ in range(8):        # n_actions allowed
             th    = sac.policy_net.get_action(h_numpy.reshape(1,-1)).item()
-            obs  = env.step(th)
-            o = trans_rgb(obs['o']).to(device)
-            d = trans_d(obs['d']).to(device)
+            obs   = env.step(th)
+            o     = trans_rgb(obs['o']).to(device)
+            d     = trans_d(obs['d']).to(device)
             th    = torch.FloatTensor([th]).view(1, -1).to(device)
             n_new = int(K*(0.5**(_+1)))
-            p,w,p_n,x = dpf(o, d, th, p, w, n_new)
 
-            p_ = get_sorted_particles(p, w)
-            h_numpy = p_[:,-3:,:,:].view(-1).detach().cpu().numpy()
+            p, w, p_n, x, h = dpf(o, d, th, p, w, h, n_new)
+
+            p_       = get_sorted_particles(p, w)
+            h_numpy  = p_[:,-3:,:,:].view(-1).detach().cpu().numpy()
             mse      = F.mse_loss(p_[:,-3:,:,:].mean(1), s).item()
 
             d        = (mse < threshold)
