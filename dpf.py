@@ -84,12 +84,13 @@ class DPF(nn.Module):
         d, e = self.derenderer(o_t, d_t)
         x    = rotate_state2(d, a_tm1)
         x    = torch.cat((x, e.unsqueeze(-1)), -1).view(B, 16)
-        x, h = self.rnn(x, h_tm1)
-        p_n  = self.generate(x) #self.generator(x).view(B, K, n_obj, dim_obj)
+        z, h = self.rnn(x.unsqueeze(0), h_tm1)
+        z    = z.squeeze(0)
+        p_n  = self.generate(z) #self.generator(x).view(B, K, n_obj, dim_obj)
 
         if p_tm1 is None:
             w_t = torch.Tensor(B, K).fill_(-np.log(K)).to(device)
-            return p_n, w_t, p_n, x
+            return p_n, w_t, p_n, x, h
         else:
             w_t = w_tm1 + self.update_belief(p_tm1, x)
             p_t = p_tm1
