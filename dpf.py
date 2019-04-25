@@ -333,7 +333,7 @@ def get_sorted_particles(p, w):
     p_ = p.gather(1, w_)
     return p_
 
-def train_rnn_sac(path, threshold=0.02):
+def train_dpf_sac(path, threshold=0.02):
     env = gym.make('ActivePerception-v0')
     dpf = DPF().to(device)
     dpf.load_model(path)
@@ -412,7 +412,7 @@ def train_rnn_sac(path, threshold=0.02):
             avg_reward = 0
             avg_mse = 0
 
-def test_rnn_sac(d_path, s_path, threshold=0.02):
+def test_dpf_sac(d_path, s_path, threshold=0.02):
     env = gym.make('ActivePerception-v0')
     env.sid = 9900 # test
     dpf = DPF().to(device)
@@ -455,5 +455,11 @@ def test_rnn_sac(d_path, s_path, threshold=0.02):
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         train_dpf()
+    elif sys.argv[1] == 'ds':
+        train_dpf_sac(sys.argv[2])
+    elif sys.argv[1] == 'tds':
+        test_dpf_sac(sys.argv[2], sys.argv[3])
+    elif sys.argv[1] == 't':
+        print("[INFO] dpf mse: ", test_dpf(sys.argv[2], int(sys.argv[3])))
     else:
-        print("[INFO] dpf mse: ", test_dpf(sys.argv[1], int(sys.argv[2])))
+        print("[ERROR] Unknown flag")
