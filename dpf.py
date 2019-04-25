@@ -31,9 +31,9 @@ class DPF(nn.Module):
 
         ### the particle proposer
         self.generator = nn.Sequential(
-            nn.Linear(16, dim_hidden),
+            nn.Linear(16+4, dim_hidden),
             nn.ReLU(),
-            nn.Linear(dim_hidden, K*dim_state)
+            nn.Linear(dim_hidden, dim_state)
         )
 
         ### the observation model (discriminator)
@@ -76,7 +76,7 @@ class DPF(nn.Module):
         d, e = self.derenderer(o_t, d_t)
         x    = rotate_state2(d, a_tm1)
         x    = torch.cat((x, e.unsqueeze(-1)), -1).view(B, 16)
-        p_n  = self.generator(x).view(B, K, n_obj, dim_obj)
+        p_n  = self.generate(x) #self.generator(x).view(B, K, n_obj, dim_obj)
 
         if p_tm1 is None:
             w_t = torch.Tensor(B, K).fill_(-np.log(K)).to(device)
@@ -93,6 +93,17 @@ class DPF(nn.Module):
                     p_t, w_t = self.resample(p_t, w_t, K)
 
         return p_t, w_t, p_n, x
+
+    def generate(self, x):
+        """
+        x: [:, 16]
+        """
+        p = []
+        for _ in range(K):
+            noise = torch.randn(x.shape[0], 4).to(device)
+            x_    = torch.cat((x, noise), -1)
+            p.append(self.generator(x_).unsqueeze(1))
+        return torch.cat(p, 1).view(-1, K, n_obj, dim_obj)
 
     def update_belief(self, p, x):
         """
@@ -152,7 +163,7 @@ class DPF(nn.Module):
         s: [B, n_obj, dim_obj]
         """
         w = F.softmax(w, -1)
-        x = torch.exp(-(p - s.unsqueeze(1)).pow(2).sum(-1).sum(-1)*2*np.pi)
+        x = torch.exp(-(p - s.unsqueeze(1)).pow(2).sum(-1).sum(-1)*10)
         x = (w * x).sum(1)
         # w: [B, K], x: [B, K]
         loss = -torch.log(1e-12+x).mean() 
@@ -217,7 +228,7 @@ class DPF(nn.Module):
         e2e_loss /= n_steps
         d_loss   /= n_steps
         g_loss   /= n_steps
-        (e2e_loss+1.2*d_loss+1.2*g_loss).backward()
+        (e2e_loss+d_loss*0.8+g_loss*0.8).backward()
         self.opt_f.step()
 
         return e2e_loss.item(), d_loss.item(), g_loss.item()
@@ -366,7 +377,7 @@ def train_dpf_sac(path, threshold=0.02):
 
         p, w, p_n, x = dpf(o, d, n_new=K)
         p_ = get_sorted_particles(p, w)
-        prev_mse = F.mse_loss(p_[:,-1,:,:], s).item()
+        prev_mse = F.mse_loss(p_[:,-3:,:,:].mean(1), s).item()
         h_numpy = p_[:,-3:,:,:].view(-1).detach().cpu().numpy()
         S.append(h_numpy)
         for _ in range(8):
@@ -380,7 +391,7 @@ def train_dpf_sac(path, threshold=0.02):
             p,w,p_n,x = dpf(o, d, th, p, w, n_new)
 
             p_ = get_sorted_particles(p, w)
-            mse      = F.mse_loss(p_[:,-1,:,:], s).item()
+            mse      = F.mse_loss(p_[:,-3:,:,:].mean(1), s).item()
 
             prev_mse = mse
             d        = (mse < threshold)
@@ -431,7 +442,7 @@ def test_dpf_sac(d_path, s_path, threshold=0.02):
         p, w, p_n, x = dpf(o, d, n_new=K)
         p_ = get_sorted_particles(p, w)
         h_numpy = p_[:,-3:,:,:].view(-1).detach().cpu().numpy()        
-        for step in range(8):        # n_actions allowed
+        for _ in range(8):        # n_actions allowed
             th    = sac.policy_net.get_action(h_numpy.reshape(1,-1)).item()
             obs  = env.step(th)
             o = trans_rgb(obs['o']).to(device)
@@ -442,7 +453,7 @@ def test_dpf_sac(d_path, s_path, threshold=0.02):
 
             p_ = get_sorted_particles(p, w)
             h_numpy = p_[:,-3:,:,:].view(-1).detach().cpu().numpy()
-            mse      = F.mse_loss(p_[:,-1,:,:], s).item()
+            mse      = F.mse_loss(p_[:,-3:,:,:].mean(1), s).item()
 
             d        = (mse < threshold)
             r        = 8 if d else -1
