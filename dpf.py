@@ -74,8 +74,6 @@ class DPF(nn.Module):
             a_tm1 = torch.zeros(B, 1).to(device)
 
         d, e = self.derenderer(o_t, d_t)
-        #if e.sum().item() < 4:
-        #    print(e.detach().cpu().numpy())
         x    = rotate_state2(d, a_tm1)
         x    = torch.cat((x, e.unsqueeze(-1)), -1).view(B, 16)
         p_n  = self.generator(x).view(B, K, n_obj, dim_obj)
@@ -93,8 +91,6 @@ class DPF(nn.Module):
                     p_t = torch.cat((p_t, p_n[:,:n_new]), 1)
                 else: # just resample
                     p_t, w_t = self.resample(p_t, w_t, K)
-
-            #w_t -= w_t.max(1, keepdim=True)[0]
 
         return p_t, w_t, p_n, x
 
@@ -331,6 +327,130 @@ def test_dpf(path, n_actions=1):
         mse  += F.mse_loss((w*p).sum(1), s).item()
     print(mmse)
     return mse
+
+def get_sorted_particles(p, w):
+    w_ = w.argsort(1).unsqueeze(2).repeat(1,1,n_obj,dim_obj)
+    p_ = p.gather(1, w_)
+    return p_
+
+def train_rnn_sac(path, threshold=0.02):
+    env = gym.make('ActivePerception-v0')
+    dpf = DPF().to(device)
+    dpf.load_model(path)
+    sac = SAC()
+
+    # set up the experiment folder
+    experiment_id = "dsac_" + get_datetime()
+    save_path = CKPT+experiment_id+".pt"
+
+    max_frames = 100000
+    frame_idx  = 0
+    best_loss  = np.inf
+    pbar       = tqdm(total=max_frames)
+    stats      = {'losses': []} 
+    best_reward = 0 
+    avg_reward = 0
+    avg_mse    = 0
+    episode    = 0
+    while frame_idx < max_frames:
+        pbar.update(1)
+
+        episode += 1
+        env.sid = env.sid % 9900
+        scene_data, obs = env.reset(False)
+
+        S, A, R, D = [], [], [], []
+        s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
+        o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
+        d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
+
+        p, w, p_n, x = dpf(o, d, n_new=K)
+        p_ = get_sorted_particles(p, w)
+        prev_mse = F.mse_loss(p_[:,-1,:,:], s).item()
+        h_numpy = p_[:,-3:,:,:].view(1, -1).detach().cpu().numpy()
+        S.append(h_numpy)
+        for _ in range(8):
+            frame_idx += 1
+            th    = sac.policy_net.get_action(h_numpy)
+            obs   = env.step(th.item())
+            o     = trans_rgb(obs['o']).to(device)
+            d     = trans_d(obs['d']).to(device)
+            th    = torch.FloatTensor([th]).view(1, -1).to(device)
+            n_new = int(K*(0.5**(_+1)))
+            p,w,p_n,x = dpf(o, d, th, p, w, n_new)
+
+            p_ = get_sorted_particles(p, w)
+            mse      = F.mse_loss(p_[:,-1,:,:], s).item()
+
+            prev_mse = mse
+            d        = (mse < threshold)
+            r        = 8 if d else -1
+            h_numpy = p_[:,-3:,:,:].view(1, -1).detach().cpu().numpy()
+
+            S.append(h_numpy)
+            A.append(th.cpu().numpy().reshape(-1))
+            R.append(r)
+            D.append(d)
+            if d:
+                break
+
+        S, NS = S[:-1], S[1:]
+        for s, a, r, ns, d in zip(S, A, R, NS, D):
+            sac.replay_buffer.push(s, a, r, ns, d)
+            if len(sac.replay_buffer) > batch_size:
+                sac.soft_q_update(batch_size)
+
+        avg_reward += np.array(r).sum()
+        avg_mse    += prev_mse
+        if episode % 10 == 0:
+            avg_reward /= 10
+            avg_mse /= 10
+            tqdm.write("[INFO] epi %05d | avg r: %10.4f | avg mse: %10.4f" % (episode, avg_reward, avg_mse))
+            if avg_reward > best_reward:
+                best_reward = avg_reward
+                sac.save_model(save_path)
+            avg_reward = 0
+            avg_mse = 0
+
+def test_rnn_sac(d_path, s_path, threshold=0.02):
+    env = gym.make('ActivePerception-v0')
+    env.sid = 9900 # test
+    dpf = DPF().to(device)
+    dpf.load_model(d_path)
+    sac = SAC()
+    sac.load_model(s_path)
+
+    reward = 0
+    for episode in tqdm(range(100)):
+        scene_data, obs = env.reset(False)
+
+        s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
+        o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
+        d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
+
+        p, w, p_n, x = dpf(o, d, n_new=K)
+        p_ = get_sorted_particles(p, w)
+        h_numpy = p_[:,-3:,:,:].view(1, -1).detach().cpu().numpy()        
+        for step in range(8):        # n_actions allowed
+            th    = sac.policy_net.get_action(h_numpy).item()
+            obs  = env.step(th)
+            o = trans_rgb(obs['o']).to(device)
+            d = trans_d(obs['d']).to(device)
+            th    = torch.FloatTensor([th]).view(1, -1).to(device)
+            n_new = int(K*(0.5**(_+1)))
+            p,w,p_n,x = dpf(o, d, th, p, w, n_new)
+
+            p_ = get_sorted_particles(p, w)
+            h_numpy = p_[:,-3:,:,:].view(1, -1).detach().cpu().numpy()
+            mse      = F.mse_loss(p_[:,-1,:,:], s).item()
+
+            d        = (mse < threshold)
+            r        = 8 if d else -1
+            reward  += r
+            if d:
+                break
+
+    print("avg reward ", reward/100)
 
 if __name__ == "__main__":
     if len(sys.argv) == 1:
