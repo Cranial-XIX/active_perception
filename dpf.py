@@ -329,7 +329,7 @@ def test_dpf(path, n_actions=1):
     return mse
 
 def get_sorted_particles(p, w):
-    w_ = w.argsort(1).unsqueeze(2).repeat(1,1,n_obj,dim_obj)
+    w_ = w.argsort(1).unsqueeze(2).unsqueeze(3).repeat(1,1,n_obj,dim_obj)
     p_ = p.gather(1, w_)
     return p_
 
@@ -337,7 +337,7 @@ def train_dpf_sac(path, threshold=0.02):
     env = gym.make('ActivePerception-v0')
     dpf = DPF().to(device)
     dpf.load_model(path)
-    sac = SAC()
+    sac = SAC(36)
 
     # set up the experiment folder
     experiment_id = "dsac_" + get_datetime()
@@ -417,7 +417,7 @@ def test_dpf_sac(d_path, s_path, threshold=0.02):
     env.sid = 9900 # test
     dpf = DPF().to(device)
     dpf.load_model(d_path)
-    sac = SAC()
+    sac = SAC(36)
     sac.load_model(s_path)
 
     reward = 0
