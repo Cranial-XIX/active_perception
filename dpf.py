@@ -367,11 +367,11 @@ def train_dpf_sac(path, threshold=0.02):
         p, w, p_n, x = dpf(o, d, n_new=K)
         p_ = get_sorted_particles(p, w)
         prev_mse = F.mse_loss(p_[:,-1,:,:], s).item()
-        h_numpy = p_[:,-3:,:,:].view(1, -1).detach().cpu().numpy()
+        h_numpy = p_[:,-3:,:,:].view(-1).detach().cpu().numpy()
         S.append(h_numpy)
         for _ in range(8):
             frame_idx += 1
-            th    = sac.policy_net.get_action(h_numpy)
+            th    = sac.policy_net.get_action(h_numpy.reshape(1,-1))
             obs   = env.step(th.item())
             o     = trans_rgb(obs['o']).to(device)
             d     = trans_d(obs['d']).to(device)
@@ -385,7 +385,7 @@ def train_dpf_sac(path, threshold=0.02):
             prev_mse = mse
             d        = (mse < threshold)
             r        = 8 if d else -1
-            h_numpy = p_[:,-3:,:,:].view(1, -1).detach().cpu().numpy()
+            h_numpy = p_[:,-3:,:,:].view(-1).detach().cpu().numpy()
 
             S.append(h_numpy)
             A.append(th.cpu().numpy().reshape(-1))
@@ -430,9 +430,9 @@ def test_dpf_sac(d_path, s_path, threshold=0.02):
 
         p, w, p_n, x = dpf(o, d, n_new=K)
         p_ = get_sorted_particles(p, w)
-        h_numpy = p_[:,-3:,:,:].view(1, -1).detach().cpu().numpy()        
+        h_numpy = p_[:,-3:,:,:].view(-1).detach().cpu().numpy()        
         for step in range(8):        # n_actions allowed
-            th    = sac.policy_net.get_action(h_numpy).item()
+            th    = sac.policy_net.get_action(h_numpy.reshape(1,-1)).item()
             obs  = env.step(th)
             o = trans_rgb(obs['o']).to(device)
             d = trans_d(obs['d']).to(device)
@@ -441,7 +441,7 @@ def test_dpf_sac(d_path, s_path, threshold=0.02):
             p,w,p_n,x = dpf(o, d, th, p, w, n_new)
 
             p_ = get_sorted_particles(p, w)
-            h_numpy = p_[:,-3:,:,:].view(1, -1).detach().cpu().numpy()
+            h_numpy = p_[:,-3:,:,:].view(-1).detach().cpu().numpy()
             mse      = F.mse_loss(p_[:,-1,:,:], s).item()
 
             d        = (mse < threshold)
