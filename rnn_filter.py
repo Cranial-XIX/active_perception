@@ -333,7 +333,6 @@ def train_rnn_sac(path, threshold=0.02):
                 sac.save_model(save_path)
             avg_reward = 0
             avg_mse = 0
-    pbar.close()
 
 def test_rnn_sac(r_path, s_path, threshold=0.02):
     env = gym.make('ActivePerception-v0')

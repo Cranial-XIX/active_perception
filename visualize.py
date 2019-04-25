@@ -16,15 +16,18 @@ def get_scene(data):
     data = data.astype('float')
     objects = []
     for idx in range(n_obj):
-        if data[4*idx] < 0.5:
-            continue
-        else:
-            i = 4*idx
-            objects.append(gen_obj(idx, data[i], data[i+1], data[i+2]))
+        i = idx*3
+        objects.append(gen_obj(idx, data[i], data[i+1], data[i+2]))
 
     return {
         "objects": objects
     }
+
+def vis(objects):
+    res = []
+    for obj in objects:
+        res.append(get_scene(obj))
+    json.dump({'scenes':res}, open(os.path.join("clevr_envs", "scene_test.json"), 'w'), indent=4)
 
 def visualize_b(target, estimates, test_name="tmp", is_rnn=True):
     suffix = "rnn" if is_rnn else "obs"
@@ -86,3 +89,13 @@ def plot_training_f(stats, title, path):
     plt.savefig(path)
     plt.close()
 
+if __name__=="__main__":
+    clevr_envs.clevr.TRANSPARENT = True
+    env = gym.make('ActivePerception-v0')
+    env.load_scene(True)
+
+    check_path("img/"+sys.argv[1])
+    print(env.total_scenes)
+    for _ in range(K+1):
+        state, obs = env.reset(False)
+        Image.fromarray(obs['o']).save("img/%s/%s.png" % (sys.argv[1], str(_)))

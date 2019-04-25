@@ -234,18 +234,16 @@ class ActivePerceptionEnv(gym.Env, utils.EzPickle):
                                      height=64,
                                      depth=True)
 
-        '''
         large_agent_obs = self.sim.render(camera_name="agent_camera",
                                      width=512,
                                      height=512,
                                      depth=True)
-        '''
         o_rgb = agent_obs[0][::-1].copy()
         o_d   = agent_obs[1][::-1].copy()
         #o = cv2.GaussianBlur(o, (3, 3), 3)
         return {
             #'b' : birdview_obs[0].copy(),
-            #'a' : large_agent_obs[0].copy(),
+            'a' : large_agent_obs[0][::-1].copy(),
             'o': o_rgb,
             'd': o_d
         }
