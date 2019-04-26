@@ -43,7 +43,7 @@ class ReplayBuffer:
 class Baseline(nn.Module):
     def __init__(self):
         super(Baseline, self).__init__()
-        self.derenderer = Derenderer()
+        self.derenderer = Derenderer().eval()
         self.derenderer.load("ckpt/dr.pt")
 
     def forward(self, o_t, d_t, a_tm1=None):
@@ -65,7 +65,7 @@ class RNNFilter(nn.Module):
         self.rb = ReplayBuffer(9900)
 
         self.filter     = nn.GRU(16, dim_hidden, b_num_layers)
-        self.derenderer = Derenderer()
+        self.derenderer = Derenderer().eval()
         self.derenderer.load("ckpt/dr.pt")
         self.decoder    = nn.Sequential(
             nn.Linear(dim_hidden, dim_hidden),
@@ -190,47 +190,44 @@ def train_filter():
                 plot_training_f(stats, 'rnn', 'ckpt/rnn_filter_training_curve.png')
     pbar.close()
 
-def test_baseline(n_actions=1, threshold=0.02):
-    env = gym.make('ActivePerception-v0')
-    env.sid = 9900 # test
-    base = Baseline().to(device)
+def test_baseline(threshold=0.02):
+    results = []
+    for _ in tqdm(range(10)):
+        env = gym.make('ActivePerception-v0')
+        env.sid = 9900 # test
+        base = Baseline().to(device)
 
-    mse = 0
-    reward = 0
-    for episode in tqdm(range(100)):
-        scene_data, obs = env.reset(False)
+        reward = 0
+        for episode in range(100):
+            scene_data, obs = env.reset(False)
+            s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
+            o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
+            d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
+            x, e = base(o, d)
+            s_   = x                             # [1, n_obj, dim_obj]
+            e_   = e                             # [1, n_obj, 1]
 
-        s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
-        o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
-        d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
+            idx  = np.random.choice(7, 7, False)+1
+            for step in idx:
+                th   = step*np.pi/4
+                #th   = np.random.rand()*2*np.pi
+                obs  = env.step(th)
+                o = trans_rgb(obs['o']).to(device)
+                d = trans_d(obs['d']).to(device)
 
-        x, e = base(o, d)
-        s_   = x                             # [1, n_obj, dim_obj]
-        e_   = e                             # [1, n_obj, 1]
-
-        idx  = np.random.choice(7, 7, False)+1
-        #for step in range(n_actions):        # n_actions allowed
-        for step in idx:
-            th   = step*np.pi/4#np.random.rand()*2*np.pi
-            obs  = env.step(th)
-            o = trans_rgb(obs['o']).to(device)
-            d = trans_d(obs['d']).to(device)
-
-            th   = torch.FloatTensor([th]).view(1, -1).to(device)
-            x, e = base(o, d, th)
-            s_  += x
-            e_  += e
-            err  = F.mse_loss(s_ / (e_+1e-10), s).item()
-            d        = (err < threshold)
-            r        = 8 if d else -1
-            reward  += r
-            if d:
-                break
-
-        s_ /= (e_+1e-10)
-        mse += F.mse_loss(s_, s).item()#(s - s_).pow(2).sum().sqrt().item()
-    print("baseline avg reward ", reward/100)
-    return mse
+                th   = torch.FloatTensor([th]).view(1, -1).to(device)
+                x, e = base(o, d, th)
+                s_  += x
+                e_  += e
+                err  = F.mse_loss(s_ / (e_+1e-16), s).item()
+                d        = (err < threshold)
+                r        = 8 if d else -1
+                reward  += r
+                if d:
+                    break
+        results.append(reward/100)
+    results = np.array(results)
+    print("Baseline avg reward %10.4f | std %10.4f" % (np.mean(results), np.std(results)))
 
 def test_rnn(path, n_actions=1):
     env = gym.make('ActivePerception-v0')
@@ -293,7 +290,7 @@ def train_rnn_sac(path, threshold=0.02):
         prev_mse = F.mse_loss(s_, s).item()
         h_numpy = h.view(-1).detach().cpu().numpy()
         S.append(h_numpy)
-        for _ in range(8):
+        for _ in range(7):
             frame_idx += 1
             th    = sac.policy_net.get_action(h_numpy.reshape(1,-1))
             obs   = env.step(th.item())
@@ -322,7 +319,7 @@ def train_rnn_sac(path, threshold=0.02):
             if len(sac.replay_buffer) > batch_size:
                 sac.soft_q_update(batch_size)
 
-        avg_reward += np.array(r).sum()
+        avg_reward += np.array(R).sum()
         avg_mse    += prev_mse
         if episode % 10 == 0:
             avg_reward /= 10
@@ -335,39 +332,46 @@ def train_rnn_sac(path, threshold=0.02):
             avg_mse = 0
 
 def test_rnn_sac(r_path, s_path, threshold=0.02):
-    env = gym.make('ActivePerception-v0')
-    env.sid = 9900 # test
     rnn = RNNFilter().to(device)
     rnn.load_model(r_path)
     sac = SAC()
     sac.load_model(s_path)
+    results = []
+    for _ in tqdm(range(10)):
+        env = gym.make('ActivePerception-v0')
+        env.sid = 9900 # test
 
-    reward = 0
-    for episode in tqdm(range(100)):
-        scene_data, obs = env.reset(False)
+        reward = 0
+        for episode in range(100):
+            scene_data, obs = env.reset(False)
 
-        s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
-        o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
-        d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
+            s = get_state(scene_data).to(device) # [1, n_obj, dim_obj] state
+            o = trans_rgb(obs['o']).to(device)   # [1, C, H, W]        rgb
+            d = trans_d(obs['d']).to(device)     # [1, 1, H, W]        depth
 
-        s_, h = rnn(o, d)
-        h_numpy = h.view(-1).detach().cpu().numpy()
-        for step in range(8):        # n_actions allowed
-            th    = sac.policy_net.get_action(h_numpy.reshape(1,-1)).item()
-            obs  = env.step(th)
-            o = trans_rgb(obs['o']).to(device)
-            d = trans_d(obs['d']).to(device)
-            th    = torch.FloatTensor([th]).view(1, -1).to(device)
-            s_, h = rnn(o, d, th, h)
+            s_, h = rnn(o, d)
             h_numpy = h.view(-1).detach().cpu().numpy()
-            mse      = F.mse_loss(s_, s).item()
-            d        = (mse < threshold)
-            r        = 8 if d else -1
-            reward  += r
-            if d:
-                break
-
-    print("avg reward ", reward/100)
+            steps = np.random.choice(7,7,0)+1
+            #for step in range(7):        # n_actions allowed
+            for step in steps:
+                #th    = 2*np.pi*np.random.rand()-np.pi
+                th    = sac.policy_net.get_action(h_numpy.reshape(1,-1)).item()
+                #th   = np.pi/4*step
+                obs  = env.step(th)
+                o = trans_rgb(obs['o']).to(device)
+                d = trans_d(obs['d']).to(device)
+                th    = torch.FloatTensor([th]).view(1, -1).to(device)
+                s_, h = rnn(o, d, th, h)
+                h_numpy = h.view(-1).detach().cpu().numpy()
+                mse      = F.mse_loss(s_, s).item()
+                d        = (mse < threshold)
+                r        = 8 if d else -1
+                reward  += r
+                if d:
+                    break
+        results.append(reward/100)
+    results = np.array(results)
+    print("RNN SAC avg reward %10.4f | std %10.4f" % (np.mean(results), np.std(results)))
 
 if __name__ == "__main__":
     if len(sys.argv) == 1:
@@ -379,6 +383,6 @@ if __name__ == "__main__":
     elif sys.argv[1] == 'r':
         print("[INFO] rnn mse: ", test_rnn(sys.argv[2], int(sys.argv[3])))
     elif sys.argv[1] == 'b':
-        print("[INFO] baseline mse: ",test_baseline(int(sys.argv[2])))
+        test_baseline()
     else:
         print("[ERROR] Unknown flag")
